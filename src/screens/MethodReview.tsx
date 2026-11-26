@@ -119,6 +119,12 @@ export default function MethodReview({ id, method }: { id: string; method: Metho
       </div>
 
       <ul className="list review-list">
+        <li className="review-row review-head" aria-hidden="true">
+          <span>Victim</span>
+          <span>Tagged</span>
+          <span>Correct</span>
+          <span />
+        </li>
         {rows.length === 0 && <li className="empty">{filter === 'wrong' ? 'No wrong tags.' : 'Every victim was tagged.'}</li>}
         {rows.map((v) => {
           const status = statuses.get(v.id)!;
