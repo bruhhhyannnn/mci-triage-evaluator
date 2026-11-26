@@ -1,12 +1,14 @@
-import { useMemo, useRef, useState, type FormEvent } from 'react';
-import { Sheet, TopBar, toast, useConfirm } from '../components/ui';
+import { useMemo, useRef, useState } from 'react';
+import { Icon } from '../components/Icon';
+import { RosterSheet } from '../components/RosterSheet';
+import { EmptyState, SearchField, SegmentedControl, Sheet, StatusChip, toast, useConfirm } from '../components/ui';
 import { DAY_KEYS, DAYS, getDay } from '../data/days';
 import { download, exportCsv, exportExcel } from '../lib/export';
-import { cleanName, formatDate, nameMatches, normalizeName, percent, todayISO } from '../lib/format';
+import { formatDate, nameMatches, normalizeName, percent, todayISO } from '../lib/format';
+import { haptic } from '../lib/haptics';
 import { navigate } from '../lib/router';
-import { readRosterFile, ROSTER_TEMPLATE, type RosterImport } from '../lib/roster';
 import { scoreEvaluation } from '../lib/scoring';
-import { addRosterEntries, clearRoster, evaluationsList, removeRosterEntry, useAppState } from '../lib/store';
+import { evaluationsList, makeBackup, removeRosterEntry, restoreBackup, useAppState } from '../lib/store';
 import type { DayKey, Evaluation } from '../lib/types';
 
 type View = 'trainees' | 'sheets';
@@ -26,16 +28,13 @@ function openSheet(e: Evaluation) {
 export default function Results() {
   const evaluations = useAppState((s) => s.evaluations);
   const roster = useAppState((s) => s.roster);
-  const drillGroup = useAppState((s) => s.drill?.group ?? '');
   const [view, setView] = useState<View>('trainees');
   const [query, setQuery] = useState('');
   const [day, setDay] = useState<DayKey | 'all'>('all');
   const [group, setGroup] = useState('all');
   const [panel, setPanel] = useState<'export' | 'roster' | null>(null);
-  const [preview, setPreview] = useState<(RosterImport & { fileName: string }) | null>(null);
-  const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const backupRef = useRef<HTMLInputElement>(null);
   const confirm = useConfirm();
 
   const all = useMemo(() => evaluationsList(evaluations), [evaluations]);
@@ -72,63 +71,47 @@ export default function Results() {
 
   async function runExport(kind: 'csv' | 'xlsx') {
     if (exportList.length === 0) return;
-    const stamp = todayISO();
     try {
       setBusy(true);
-      if (kind === 'csv') exportCsv(exportList, stamp);
-      else await exportExcel(exportList, stamp);
+      if (kind === 'csv') exportCsv(exportList, todayISO());
+      else await exportExcel(exportList, todayISO());
+      haptic('success');
       toast(`Exported ${exportList.length} ${exportList.length === 1 ? 'sheet' : 'sheets'}.`);
       setPanel(null);
     } catch {
+      haptic('warning');
       toast('Export failed. Try again.');
     } finally {
       setBusy(false);
     }
   }
 
-  async function onFile(file: File | undefined) {
+  function saveBackup() {
+    download(`mci-triage-backup-${todayISO()}.json`, JSON.stringify(makeBackup()), 'application/json');
+    haptic('success');
+    toast('Backup file saved.');
+    setPanel(null);
+  }
+
+  async function onBackupFile(file: File | undefined) {
     if (!file) return;
     try {
-      const result = await readRosterFile(file);
-      if (result.entries.length === 0) throw new Error('No names found in that file.');
-      setPreview({ ...result, fileName: file.name });
+      const result = restoreBackup(JSON.parse(await file.text()));
+      haptic('success');
+      toast(`Restored ${result.sheets} sheets and ${result.names} names.`);
+      setPanel(null);
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not read that file.');
+      haptic('warning');
+      toast(e instanceof Error && e.message.includes('backup') ? e.message : 'Could not read that backup file.');
     } finally {
-      if (fileRef.current) fileRef.current.value = '';
-    }
-  }
-
-  function addName(e: FormEvent) {
-    e.preventDefault();
-    const name = cleanName(newName);
-    if (name.split(' ').length < 2) {
-      toast('Type first and last name.');
-      return;
-    }
-    const added = addRosterEntries([{ name, group: drillGroup }], 'merge');
-    toast(added ? `Added ${name}.` : `${name} is already on the roster.`);
-    setNewName('');
-  }
-
-  async function clearAll() {
-    setPanel(null);
-    const ok = await confirm.ask({
-      title: 'Clear the roster?',
-      message: <p>All {roster.length} roster names are removed. Score sheets are kept.</p>,
-      confirmLabel: 'Clear roster',
-      danger: true,
-    });
-    if (ok) {
-      clearRoster();
-      toast('Roster cleared.');
+      if (backupRef.current) backupRef.current.value = '';
     }
   }
 
   async function removeFromRoster(t: TraineeRow) {
     const ok = await confirm.ask({
       title: `Remove ${t.name}?`,
-      message: <p>They are removed from the roster. Their score sheets are kept.</p>,
+      message: <p>They are taken off the roster. Their score sheets are kept.</p>,
       confirmLabel: 'Remove',
       danger: true,
     });
@@ -137,36 +120,35 @@ export default function Results() {
 
   return (
     <main className="screen">
-      <TopBar
-        title="Results"
-        subtitle={`${trainees.length} trainees · ${all.length} sheets`}
-        right={
-          <button type="button" className="link-btn" onClick={() => setPanel('export')} disabled={all.length === 0}>
-            Export
-          </button>
-        }
-      />
+      <header className="home-header">
+        <div>
+          <div className="eyebrow">MCI triage drill</div>
+          <h1 className="title">Results</h1>
+          <p className="meta-line">
+            {trainees.length} trainees · {all.length} sheets
+          </p>
+        </div>
+        <button type="button" className="btn outline sm" onClick={() => setPanel('export')}>
+          <Icon name="download" size={16} />
+          Export
+        </button>
+      </header>
 
-      <div className="filters">
-        <input
-          type="search"
-          className="search"
-          placeholder="Search name"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          aria-label="Search name"
-        />
+      <div className="stack-sm">
+        <SearchField value={query} onChange={setQuery} placeholder="Search name" label="Search name" />
         <div className="row">
-          <div className="segmented small grow" role="tablist" aria-label="View">
-            <button type="button" role="tab" aria-selected={view === 'trainees'} onClick={() => setView('trainees')}>
-              Trainees
-            </button>
-            <button type="button" role="tab" aria-selected={view === 'sheets'} onClick={() => setView('sheets')}>
-              Sheets
-            </button>
-          </div>
+          <SegmentedControl<View>
+            label="View"
+            className="grow"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: 'trainees', label: 'Trainees' },
+              { value: 'sheets', label: 'Sheets' },
+            ]}
+          />
           {groups.length > 0 && (
-            <select className="group-select" value={group} onChange={(e) => setGroup(e.target.value)} aria-label="Group">
+            <select className="select" value={group} onChange={(e) => setGroup(e.target.value)} aria-label="Group">
               <option value="all">All groups</option>
               {groups.map((g) => (
                 <option key={g} value={g}>
@@ -179,12 +161,18 @@ export default function Results() {
         </div>
         {view === 'sheets' && (
           <div className="chips" role="group" aria-label="Day">
-            <button type="button" className={day === 'all' ? 'chip on' : 'chip'} aria-pressed={day === 'all'} onClick={() => setDay('all')}>
-              All days
-            </button>
-            {DAY_KEYS.map((k) => (
-              <button key={k} type="button" className={day === k ? 'chip on' : 'chip'} aria-pressed={day === k} onClick={() => setDay(k)}>
-                {DAYS[k].label}
+            {(['all', ...DAY_KEYS] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                className={`chip ${day === k ? 'on' : ''}`}
+                aria-pressed={day === k}
+                onClick={() => {
+                  haptic('select');
+                  setDay(k);
+                }}
+              >
+                {k === 'all' ? 'All days' : DAYS[k].label}
               </button>
             ))}
           </div>
@@ -193,11 +181,23 @@ export default function Results() {
 
       {view === 'trainees' ? (
         trainees.length === 0 ? (
-          <p className="empty">
-            {roster.length + all.length === 0 ? 'No trainees yet. Import a roster or start evaluating.' : 'No one matches.'}
-          </p>
+          roster.length + all.length === 0 ? (
+            <EmptyState
+              icon="users"
+              title="No trainees yet"
+              body="Import the list of names, or start evaluating from the Evaluate tab."
+              action={
+                <button type="button" className="btn primary" onClick={() => setPanel('roster')}>
+                  <Icon name="upload" size={18} />
+                  Import names
+                </button>
+              }
+            />
+          ) : (
+            <EmptyState title="No one matches" body="Try another name or group." />
+          )
         ) : (
-          <div className="table-wrap">
+          <div className="card table-card">
             <table className="trainee-table">
               <thead>
                 <tr>
@@ -214,13 +214,13 @@ export default function Results() {
                   <tr key={t.key}>
                     <th scope="row">
                       {t.rosterId && Object.keys(t.byDay).length === 0 ? (
-                        <button type="button" className="name-btn" onClick={() => removeFromRoster(t)} aria-label={`${t.name}, on roster, tap to remove`}>
+                        <button type="button" className="name-btn" onClick={() => removeFromRoster(t)} title="Tap to remove from roster">
                           {t.name}
                         </button>
                       ) : (
-                        t.name
+                        <span>{t.name}</span>
                       )}
-                      {t.group && <small className="muted">{t.group}</small>}
+                      {t.group && <small>{t.group}</small>}
                     </th>
                     {DAY_KEYS.map((k) => {
                       const e = t.byDay[k];
@@ -229,8 +229,8 @@ export default function Results() {
                       return (
                         <td key={k}>
                           <button type="button" className={`cell-btn ${e.completedAt ? '' : 'unfinished'}`} onClick={() => openSheet(e)}>
-                            {e.completedAt ? percent(s.accuracy) : 'Unfinished'}
-                            <small>
+                            <span>{e.completedAt ? percent(s.accuracy) : 'Unfinished'}</span>
+                            <small className="mono">
                               {s.correct}/{s.total}
                             </small>
                           </button>
@@ -244,154 +244,81 @@ export default function Results() {
           </div>
         )
       ) : sheets.length === 0 ? (
-        <p className="empty">{all.length === 0 ? 'No sheets yet.' : 'No sheets match.'}</p>
+        <EmptyState icon="clipboard-check" title={all.length === 0 ? 'No sheets yet' : 'No sheets match'} body={all.length === 0 ? 'Sheets you score show up here.' : 'Try another day, name or group.'} />
       ) : (
-        <ul className="list">
+        <div className="stack-sm">
           {sheets.map((e) => {
             const s = scoreEvaluation(e);
             return (
-              <li key={e.id}>
-                <button type="button" className="list-row" onClick={() => openSheet(e)}>
-                  <span className="list-main">
-                    {e.traineeName}
-                    <small className="muted">
-                      {getDay(e.day).label} · {formatDate(e.date)}
-                      {e.group ? ` · ${e.group}` : ''}
-                    </small>
+              <button key={e.id} type="button" className="row-card" onClick={() => openSheet(e)}>
+                <span className="row-main">
+                  <span className="row-title">{e.traineeName}</span>
+                  <span className="row-sub">
+                    {getDay(e.day).label} · {formatDate(e.date)}
+                    {e.group ? ` · ${e.group}` : ''}
                   </span>
-                  {e.completedAt ? (
-                    <span className="list-score">
+                </span>
+                {e.completedAt ? (
+                  <span className="row-score">
+                    <span className="mono">
                       {s.correct}/{s.total}
-                      <small>{percent(s.accuracy)}</small>
                     </span>
-                  ) : (
-                    <span className="badge warn">Unfinished</span>
-                  )}
-                </button>
-              </li>
+                    <small>{percent(s.accuracy)}</small>
+                  </span>
+                ) : (
+                  <StatusChip status="pending">Unfinished</StatusChip>
+                )}
+              </button>
             );
           })}
-        </ul>
+        </div>
       )}
 
-      <button type="button" className="card roster-card" onClick={() => setPanel('roster')}>
-        <span>
-          <strong>Roster</strong>
-          <span className="muted">
-            {roster.length ? `${roster.length} names on this device` : 'Import a list of trainee names'}
-          </span>
+      <button type="button" className="row-card" onClick={() => setPanel('roster')}>
+        <span className="row-plus" aria-hidden="true">
+          <Icon name="users" size={18} />
         </span>
-        <span className="resume-go">{roster.length ? 'Manage' : 'Import'}</span>
+        <span className="row-main">
+          <span className="row-title">Trainee names</span>
+          <span className="row-sub">{roster.length ? `${roster.length} names on this device` : 'Import a list of names'}</span>
+        </span>
+        <span className="row-go" aria-hidden="true">
+          <Icon name="chevron-right" size={20} />
+        </span>
       </button>
 
-      <Sheet open={panel === 'export'} title="Export results" onClose={() => setPanel(null)}>
-        <p className="sheet-body">
+      <Sheet open={panel === 'export'} title="Export and backup" onClose={() => setPanel(null)}>
+        <p className="sheet-body muted">
           {exportList.length} {exportList.length === 1 ? 'sheet' : 'sheets'}
-          {filtered ? ' matching your filters' : ''}.
+          {filtered ? ' match your filters' : ' on this device'}.
         </p>
         <div className="stack-sm">
           <button type="button" className="btn primary block" disabled={busy || !exportList.length} onClick={() => runExport('xlsx')}>
+            <Icon name="file-spreadsheet" size={18} />
             Excel (.xlsx)
           </button>
-          <button type="button" className="btn secondary block" disabled={busy || !exportList.length} onClick={() => runExport('csv')}>
+          <button type="button" className="btn outline block" disabled={busy || !exportList.length} onClick={() => runExport('csv')}>
             CSV
           </button>
         </div>
-      </Sheet>
-
-      <Sheet open={panel === 'roster'} title="Roster" onClose={() => setPanel(null)}>
-        <p className="muted small">
-          A .csv or .xlsx file with a <strong>Full Name</strong> column (or Last Name + First Name). A Group or Batch column is
-          optional. Roster names show on the Evaluate tab.
+        <div className="divider" />
+        <p className="sheet-body muted small">
+          Scores are saved on this phone only. A backup file moves everything (sheets and names) to another device.
         </p>
         <div className="row">
-          <button type="button" className="btn primary grow" onClick={() => fileRef.current?.click()}>
-            Import file
+          <button type="button" className="btn outline grow" onClick={saveBackup} disabled={all.length + roster.length === 0}>
+            <Icon name="download" size={18} />
+            Save backup
           </button>
-          <button
-            type="button"
-            className="btn secondary"
-            onClick={() => download('roster-template.csv', ROSTER_TEMPLATE, 'text/csv;charset=utf-8')}
-          >
-            Template
+          <button type="button" className="btn outline grow" onClick={() => backupRef.current?.click()}>
+            <Icon name="upload" size={18} />
+            Restore
           </button>
         </div>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          hidden
-          onChange={(e) => onFile(e.target.files?.[0])}
-        />
-        <form className="row" onSubmit={addName} noValidate>
-          <input
-            className="search grow"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="Add one name"
-            aria-label="Add one name"
-            autoCapitalize="words"
-          />
-          <button type="submit" className="btn secondary">
-            Add
-          </button>
-        </form>
-        {roster.length > 0 && (
-          <button type="button" className="link-btn danger" onClick={clearAll}>
-            Clear roster ({roster.length})
-          </button>
-        )}
+        <input ref={backupRef} type="file" accept=".json,application/json" hidden onChange={(e) => onBackupFile(e.target.files?.[0])} />
       </Sheet>
 
-      <Sheet open={!!preview} title={`Import ${preview?.fileName ?? ''}`} onClose={() => setPreview(null)}>
-        {preview && (
-          <>
-            <div className="sheet-body">
-              <p>
-                Found <strong>{preview.entries.length}</strong> names
-                {preview.skipped > 0 ? `, skipped ${preview.skipped} rows without a name` : ''}.
-              </p>
-              <ul className="preview-list">
-                {preview.entries.slice(0, 5).map((e, i) => (
-                  <li key={i}>
-                    {e.name}
-                    {e.group && <span className="muted"> · {e.group}</span>}
-                  </li>
-                ))}
-                {preview.entries.length > 5 && <li className="muted">and {preview.entries.length - 5} more</li>}
-              </ul>
-            </div>
-            <div className="sheet-actions">
-              {roster.length > 0 && (
-                <button
-                  type="button"
-                  className="btn secondary"
-                  onClick={() => {
-                    const n = addRosterEntries(preview.entries, 'replace');
-                    setPreview(null);
-                    setPanel(null);
-                    toast(`Roster replaced: ${n} names.`);
-                  }}
-                >
-                  Replace roster
-                </button>
-              )}
-              <button
-                type="button"
-                className="btn primary"
-                onClick={() => {
-                  const n = addRosterEntries(preview.entries, 'merge');
-                  setPreview(null);
-                  setPanel(null);
-                  toast(`${n} ${n === 1 ? 'name' : 'names'} added.`);
-                }}
-              >
-                {roster.length > 0 ? 'Add to roster' : 'Import'}
-              </button>
-            </div>
-          </>
-        )}
-      </Sheet>
+      <RosterSheet open={panel === 'roster'} onClose={() => setPanel(null)} />
       {confirm.element}
     </main>
   );

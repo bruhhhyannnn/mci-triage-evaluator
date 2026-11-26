@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Sheet } from '../components/ui';
+import { useMemo, useState } from 'react';
+import { Icon } from '../components/Icon';
+import { RosterSheet } from '../components/RosterSheet';
+import { SettingsSheet } from '../components/SettingsSheet';
+import { EmptyState, IconButton, SearchField, SegmentedControl, Sheet, StatusChip } from '../components/ui';
 import { DAY_KEYS, DAYS, getDay } from '../data/days';
 import { cleanName, formatDate, nameMatches, normalizeName, percent } from '../lib/format';
+import { haptic } from '../lib/haptics';
 import { navigate } from '../lib/router';
 import { nextUnfinishedMethod, scoreEvaluation } from '../lib/scoring';
-import { createEvaluation, defaultDrill, evaluationsList, saveDrill, setDrillDay, useAppState } from '../lib/store';
-import type { Drill, Evaluation } from '../lib/types';
+import { createEvaluation, defaultDrill, evaluationsList, setDrillDay, useAppState } from '../lib/store';
+import type { DayKey, Evaluation } from '../lib/types';
 
 interface Candidate {
   key: string;
@@ -15,54 +19,7 @@ interface Candidate {
   sameDay: Evaluation[];
 }
 
-function DrillForm({ initial, onSave, onCancel }: { initial: Drill; onSave: () => void; onCancel?: () => void }) {
-  const [form, setForm] = useState(initial);
-  const [error, setError] = useState('');
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    if (!cleanName(form.evaluatorName)) {
-      setError('Enter your name.');
-      return;
-    }
-    saveDrill(form);
-    onSave();
-  }
-  return (
-    <form className="stack" onSubmit={submit} noValidate>
-      <label className="field">
-        <span>Your name (evaluator)</span>
-        <input
-          autoComplete="name"
-          autoCapitalize="words"
-          value={form.evaluatorName}
-          onChange={(e) => {
-            setForm({ ...form, evaluatorName: e.target.value });
-            setError('');
-          }}
-          placeholder="Full name"
-          aria-invalid={!!error}
-        />
-        {error && <span className="field-error">{error}</span>}
-      </label>
-      <label className="field">
-        <span>
-          Group or batch <em>optional</em>
-        </span>
-        <input value={form.group} onChange={(e) => setForm({ ...form, group: e.target.value })} placeholder="e.g. Batch 3" />
-      </label>
-      <div className="sheet-actions">
-        {onCancel && (
-          <button type="button" className="btn secondary" onClick={onCancel}>
-            Cancel
-          </button>
-        )}
-        <button type="submit" className="btn primary">
-          Save
-        </button>
-      </div>
-    </form>
-  );
-}
+const ALL = '__all__';
 
 export default function Home() {
   const drill = useAppState((s) => s.drill) ?? defaultDrill();
@@ -72,12 +29,10 @@ export default function Home() {
   const day = getDay(drill.day);
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
-  const [editDrill, setEditDrill] = useState(!hasEvaluator);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [rosterOpen, setRosterOpen] = useState(false);
   const [existing, setExisting] = useState<Candidate | null>(null);
-
-  useEffect(() => {
-    if (!hasEvaluator) setEditDrill(true);
-  }, [hasEvaluator]);
+  const [groupFilter, setGroupFilter] = useState<string | null>(null);
 
   const all = useMemo(() => evaluationsList(evaluations), [evaluations]);
   const unfinished = useMemo(() => all.filter((e) => !e.completedAt), [all]);
@@ -99,218 +54,237 @@ export default function Home() {
     return Array.from(map.values());
   }, [roster, all, drill.day]);
 
+  const groups = useMemo(() => Array.from(new Set(candidates.map((c) => c.group).filter(Boolean))).sort(), [candidates]);
+  // Default to the drill's group when it exists in the list.
+  const group = groupFilter ?? (drill.group && groups.includes(drill.group) ? drill.group : ALL);
+
   const trimmed = cleanName(query);
   const matches = useMemo(() => {
-    const list = trimmed ? candidates.filter((c) => nameMatches(c.name, trimmed)) : candidates;
-    // Not yet evaluated today's day first, then the drill's group, then A–Z.
-    return [...list].sort(
-      (a, b) =>
-        Number(a.sameDay.length > 0) - Number(b.sameDay.length > 0) ||
-        Number(!!drill.group && b.group === drill.group) - Number(!!drill.group && a.group === drill.group) ||
-        a.name.localeCompare(b.name),
-    );
-  }, [candidates, trimmed, drill.group]);
-  const exact = matches.find((c) => c.key === normalizeName(trimmed));
-  const notYet = candidates.filter((c) => c.sameDay.length === 0).length;
+    const list = candidates.filter((c) => (group === ALL || c.group === group) && (!trimmed || nameMatches(c.name, trimmed)));
+    // Not yet done for this day first, then A–Z.
+    return list.sort((a, b) => Number(a.sameDay.length > 0) - Number(b.sameDay.length > 0) || a.name.localeCompare(b.name));
+  }, [candidates, trimmed, group]);
+  const exact = candidates.find((c) => c.key === normalizeName(trimmed));
+  const inScope = candidates.filter((c) => group === ALL || c.group === group);
+  const notYet = inScope.filter((c) => c.sameDay.length === 0).length;
 
-  function begin(name: string, group = '') {
-    const e = createEvaluation(name, drill, group);
+  function begin(name: string, g = '') {
+    haptic('tap');
+    const e = createEvaluation(name, drill, g);
     setQuery('');
     navigate({ name: 'score', id: e.id });
   }
 
   function choose(c: Candidate) {
-    if (c.sameDay.length > 0) setExisting(c);
-    else begin(c.name, c.group);
+    if (c.sameDay.length > 0) {
+      haptic('select');
+      setExisting(c);
+    } else begin(c.name, c.group);
   }
 
   function startNew() {
-    if (trimmed.split(' ').length < 2) setError('Type the full name (first and last) to add a new trainee.');
-    else begin(trimmed);
+    if (trimmed.split(' ').length < 2) {
+      haptic('warning');
+      setError("Type the trainee's first and last name to add them.");
+    } else begin(trimmed, group === ALL ? '' : group);
   }
 
-  function submit(e: FormEvent) {
-    e.preventDefault();
+  function submit() {
     if (!trimmed) return;
     if (exact) choose(exact);
     else if (matches.length === 1 && trimmed.split(' ').length < 2) choose(matches[0]);
     else startNew();
   }
 
-  function switchDay(key: Drill['day']) {
-    if (key !== drill.day) setDrillDay(key);
-  }
+  const hint = error
+    ? error
+    : candidates.length === 0
+      ? `Type a full name and press Go, or import your list of names.`
+      : notYet > 0
+        ? `${notYet} not yet done for ${day.label}. Tap a name to start ${day.methods[0]}.`
+        : `Everyone here is done for ${day.label}. Type a new name to add someone.`;
 
   return (
     <main className="screen home">
       <header className="home-header">
-        <div className="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 32 32" width="24" height="24">
-            <rect x="12" y="4" width="8" height="24" rx="2" fill="currentColor" />
-            <rect x="4" y="12" width="24" height="8" rx="2" fill="currentColor" />
-          </svg>
-        </div>
-        <div className="home-title">
-          <h1>MCI Triage Evaluator</h1>
-          <button type="button" className="evaluator-line" onClick={() => setEditDrill(true)}>
-            {drill.evaluatorName || 'Set evaluator'}
+        <div>
+          <div className="eyebrow">MCI triage drill</div>
+          <h1 className="title">Evaluate</h1>
+          <p className="meta-line">
+            <Icon name="user" size={16} />
+            {drill.evaluatorName || 'No evaluator set'}
             {drill.group && <span> · {drill.group}</span>}
-            <span className="edit-hint">Edit</span>
-          </button>
+          </p>
         </div>
+        <IconButton icon="settings" label="Settings" onClick={() => setSettingsOpen(true)} />
       </header>
 
-      <section className="day-switch" aria-label="Day">
-        <div className="segmented day-tabs" role="radiogroup" aria-label="Day">
-          {DAY_KEYS.map((k) => (
-            <button key={k} type="button" role="radio" aria-checked={drill.day === k} onClick={() => switchDay(k)}>
-              {DAYS[k].label}
-            </button>
-          ))}
-        </div>
+      <section className="stack-sm" aria-label="Day">
+        <SegmentedControl<DayKey>
+          label="Day"
+          role="radiogroup"
+          className="day-tabs"
+          value={drill.day}
+          onChange={(k) => k !== drill.day && setDrillDay(k)}
+          options={DAY_KEYS.map((k) => ({ value: k, label: DAYS[k].label }))}
+        />
         <p className="day-flow">
           {day.methods.map((m, i) => (
             <span key={m}>
               {i > 0 && <span className="arrow"> → </span>}
-              <strong>{m}</strong>
+              {m}
             </span>
           ))}
-          <span className="muted nowrap">
-            {' '}
-            · {day.victims.length} victims · {day.victims.length * day.methods.length} pts
+          <span className="day-flow-meta">
+            {day.victims.length} victims · {day.victims.length * day.methods.length} pts
           </span>
         </p>
       </section>
 
-      <form className="name-search" onSubmit={submit} noValidate role="search">
-        <input
-          type="search"
-          enterKeyHint="go"
-          autoComplete="off"
-          autoCapitalize="words"
+      <section className="stack-sm" aria-label="Find trainee">
+        <SearchField
           value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
+          onChange={(v) => {
+            setQuery(v);
             setError('');
           }}
+          onSubmit={submit}
           placeholder="Trainee's last name or full name"
-          aria-label="Trainee's last name or full name"
-          aria-invalid={!!error}
-          aria-describedby="name-hint"
+          label="Trainee's last name or full name"
+          invalid={!!error}
+          describedBy="name-hint"
         />
-        <p id="name-hint" className={error ? 'field-error' : 'field-hint'}>
-          {error ||
-            (candidates.length === 0
-              ? `Type a full name and press Go to start ${day.methods[0]}.`
-              : notYet > 0
-                ? `Tap a name to start ${day.methods[0]} · ${notYet} not yet done for ${day.label}.`
-                : `Tap a name, or type a new trainee's full name.`)}
+        <p id="name-hint" className={error ? 'field-error' : 'hint'}>
+          {hint}
         </p>
-      </form>
-
-      {!trimmed && unfinished.length > 0 && (
-        <section className="stack-sm" aria-label="Not finished">
-          <h2 className="section-title">Not finished</h2>
-          <ul className="list">
-            {unfinished.map((e) => {
-              const next = nextUnfinishedMethod(e);
-              return (
-                <li key={e.id}>
-                  <button type="button" className="list-row resume-row" onClick={() => navigate({ name: 'score', id: e.id })}>
-                    <span className="list-main">
-                      {e.traineeName}
-                      <small className="muted">
-                        {getDay(e.day).label} · {formatDate(e.date)}
-                      </small>
-                    </span>
-                    <span className="badge warn">Continue {next}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
-
-      <section className="stack-sm" aria-label="Trainees">
-        {trimmed || candidates.length > 0 ? (
-          <ul className="list candidate-list">
-            {matches.slice(0, 60).map((c) => {
-              const latest = c.sameDay[0];
-              const s = latest && scoreEvaluation(latest);
-              return (
-                <li key={c.key}>
-                  <button type="button" className="list-row" onClick={() => choose(c)}>
-                    <span className="list-main">
-                      {c.name}
-                      {c.group && <small className="muted">{c.group}</small>}
-                    </span>
-                    {latest ? (
-                      latest.completedAt ? (
-                        <span className="list-score done">
-                          {s!.correct}/{s!.total}
-                          <small>{day.label} done</small>
-                        </span>
-                      ) : (
-                        <span className="badge warn">Unfinished</span>
-                      )
-                    ) : (
-                      <span className="start-chip">Start</span>
-                    )}
-                  </button>
-                </li>
-              );
-            })}
-            {trimmed && !exact && (
-              <li>
-                <button type="button" className="list-row new-row" onClick={startNew}>
-                  <span className="list-main">
-                    <span>
-                      <span className="plus" aria-hidden="true">
-                        +
-                      </span>
-                      New trainee: <strong>{trimmed}</strong>
-                    </span>
-                  </span>
-                </button>
-              </li>
-            )}
-          </ul>
-        ) : (
-          <p className="empty">
-            No trainees yet. Type a full name above, or import a roster from <strong>Results</strong>.
-          </p>
+        {groups.length > 1 && (
+          <div className="chips" role="group" aria-label="Group">
+            {[ALL, ...groups].map((g) => (
+              <button
+                key={g}
+                type="button"
+                className={`chip ${group === g ? 'on' : ''}`}
+                aria-pressed={group === g}
+                onClick={() => {
+                  haptic('select');
+                  setGroupFilter(g);
+                }}
+              >
+                {g === ALL ? 'All groups' : g}
+              </button>
+            ))}
+          </div>
         )}
       </section>
 
-      <Sheet open={editDrill} title={hasEvaluator ? 'Evaluator details' : 'Welcome! Who is evaluating?'} onClose={() => hasEvaluator && setEditDrill(false)}>
-        <DrillForm initial={drill} onSave={() => setEditDrill(false)} onCancel={hasEvaluator ? () => setEditDrill(false) : undefined} />
-      </Sheet>
+      {!trimmed && unfinished.length > 0 && (
+        <section className="stack-sm" aria-label="Not finished">
+          <h2 className="section-label">Not finished</h2>
+          {unfinished.map((e) => (
+            <button key={e.id} type="button" className="row-card pending" onClick={() => navigate({ name: 'score', id: e.id })}>
+              <span className="row-main">
+                <span className="row-title">{e.traineeName}</span>
+                <span className="row-sub">
+                  {getDay(e.day).label} · {formatDate(e.date)}
+                </span>
+              </span>
+              <StatusChip status="pending">Continue {nextUnfinishedMethod(e)}</StatusChip>
+            </button>
+          ))}
+        </section>
+      )}
 
-      <Sheet open={!!existing} title={`${existing?.name ?? ''} already has ${day.label}`} onClose={() => setExisting(null)}>
-        <ul className="list">
+      {candidates.length === 0 && !trimmed ? (
+        <EmptyState
+          icon="users"
+          title="Add your trainees"
+          body="Import the list of names once, then tap a name to start scoring."
+          action={
+            <button type="button" className="btn primary" onClick={() => setRosterOpen(true)}>
+              <Icon name="upload" size={18} />
+              Import names
+            </button>
+          }
+        />
+      ) : (
+        <section className="stack-sm" aria-label="Trainees">
+          <div className="section-head">
+            <h2 className="section-label">
+              {trimmed ? 'Matches' : 'Trainees'} <span className="count">{matches.length}</span>
+            </h2>
+            <button type="button" className="btn ghost sm" onClick={() => setRosterOpen(true)}>
+              <Icon name="upload" size={16} />
+              Import names
+            </button>
+          </div>
+          {matches.slice(0, 80).map((c) => {
+            const latest = c.sameDay[0];
+            const s = latest && scoreEvaluation(latest);
+            return (
+              <button key={c.key} type="button" className={`row-card ${latest?.completedAt ? 'done' : ''}`} onClick={() => choose(c)}>
+                <span className="row-main">
+                  <span className="row-title">{c.name}</span>
+                  {c.group && <span className="row-sub">{c.group}</span>}
+                </span>
+                {latest ? (
+                  latest.completedAt ? (
+                    <StatusChip status="live">
+                      Done <span className="mono">{s!.correct}/{s!.total}</span>
+                    </StatusChip>
+                  ) : (
+                    <StatusChip status="pending">Unfinished</StatusChip>
+                  )
+                ) : (
+                  <span className="row-go" aria-hidden="true">
+                    <Icon name="chevron-right" size={20} />
+                  </span>
+                )}
+              </button>
+            );
+          })}
+          {trimmed && !exact && (
+            <button type="button" className="row-card new" onClick={startNew}>
+              <span className="row-plus" aria-hidden="true">
+                <Icon name="plus" size={18} />
+              </span>
+              <span className="row-main">
+                <span className="row-title">Add “{trimmed}”</span>
+                <span className="row-sub">New trainee · starts {day.methods[0]}</span>
+              </span>
+            </button>
+          )}
+        </section>
+      )}
+
+      <SettingsSheet open={settingsOpen || !hasEvaluator} firstRun={!hasEvaluator} onClose={() => setSettingsOpen(false)} />
+      <RosterSheet open={rosterOpen} onClose={() => setRosterOpen(false)} />
+
+      <Sheet open={!!existing} title={existing?.name ?? ''} eyebrow={`Already has ${day.label}`} onClose={() => setExisting(null)}>
+        <div className="stack-sm">
           {existing?.sameDay.map((e) => {
             const s = scoreEvaluation(e);
             return (
-              <li key={e.id}>
-                <button
-                  type="button"
-                  className="list-row"
-                  onClick={() => navigate(e.completedAt ? { name: 'sheet', id: e.id } : { name: 'score', id: e.id })}
-                >
-                  <span className="list-main">
-                    {e.completedAt ? 'Open results' : `Continue ${nextUnfinishedMethod(e)}`}
-                    <small className="muted">
-                      {formatDate(e.date)} · {s.correct}/{s.total} · {percent(s.accuracy)}
-                    </small>
+              <button
+                key={e.id}
+                type="button"
+                className="row-card"
+                onClick={() => navigate(e.completedAt ? { name: 'sheet', id: e.id } : { name: 'score', id: e.id })}
+              >
+                <span className="row-main">
+                  <span className="row-title">{e.completedAt ? 'Open results' : `Continue ${nextUnfinishedMethod(e)}`}</span>
+                  <span className="row-sub">
+                    {formatDate(e.date)} · <span className="mono">{s.correct}/{s.total}</span> · {percent(s.accuracy)}
                   </span>
-                </button>
-              </li>
+                </span>
+                <span className="row-go" aria-hidden="true">
+                  <Icon name="chevron-right" size={20} />
+                </span>
+              </button>
             );
           })}
-        </ul>
+        </div>
         <div className="sheet-actions">
-          <button type="button" className="btn secondary" onClick={() => setExisting(null)}>
+          <button type="button" className="btn outline" onClick={() => setExisting(null)}>
             Cancel
           </button>
           <button

@@ -1,21 +1,24 @@
 import { useEffect } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
+import { Icon, type IconName } from './components/Icon';
 import { ToastHost } from './components/ui';
+import { haptic, setHapticsEnabled } from './lib/haptics';
 import { navigate, useRoute, type Route } from './lib/router';
-import { useAppState } from './lib/store';
+import { useAppState, type Appearance } from './lib/store';
 import Home from './screens/Home';
 import Results from './screens/Results';
 import Scoring from './screens/Scoring';
 import SheetResults from './screens/SheetResults';
 
-const TABS: { route: Route; label: string; icon: string }[] = [
-  { route: { name: 'home' }, label: 'Evaluate', icon: 'M12 5v14M5 12h14' },
-  { route: { name: 'results' }, label: 'Results', icon: 'M5 19V11M12 19V5M19 19v-6' },
+const TABS: { route: Route; label: string; icon: IconName }[] = [
+  { route: { name: 'home' }, label: 'Evaluate', icon: 'clipboard-check' },
+  { route: { name: 'results' }, label: 'Results', icon: 'chart-column' },
 ];
 
-function BottomNav({ current }: { current: Route['name'] }) {
+/** The design system's floating TabBar. */
+function TabBar({ current }: { current: Route['name'] }) {
   return (
-    <nav className="bottom-nav" aria-label="Main">
+    <nav className="tabbar" aria-label="Main">
       {TABS.map((tab) => {
         const active = tab.route.name === current;
         return (
@@ -24,11 +27,14 @@ function BottomNav({ current }: { current: Route['name'] }) {
             type="button"
             className={active ? 'active' : ''}
             aria-current={active ? 'page' : undefined}
-            onClick={() => navigate(tab.route)}
+            onClick={() => {
+              if (!active) haptic('select');
+              navigate(tab.route);
+            }}
           >
-            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-              <path d={tab.icon} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <span className="tab-pill">
+              <Icon name={tab.icon} size={20} />
+            </span>
             {tab.label}
           </button>
         );
@@ -46,16 +52,39 @@ function UpdateBanner() {
   return (
     <div className="update-banner" role="status">
       <span>A new version is ready.</span>
-      <button type="button" className="btn small primary" onClick={() => updateServiceWorker(true)}>
+      <button type="button" className="btn primary sm" onClick={() => updateServiceWorker(true)}>
         Update
       </button>
     </div>
   );
 }
 
+const THEME_COLOR = { light: '#eef4fb', dark: '#0b1628' };
+
+/** Applies the Appearance setting (Light · Dark · Match phone) to <html data-theme>. */
+function useAppearance(appearance: Appearance) {
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => {
+      const theme = appearance === 'system' ? (media.matches ? 'dark' : 'light') : appearance;
+      document.documentElement.dataset.theme = theme;
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLOR[theme]);
+    };
+    apply();
+    media.addEventListener('change', apply);
+    return () => media.removeEventListener('change', apply);
+  }, [appearance]);
+}
+
 export default function App() {
   const route = useRoute();
   const storageError = useAppState((s) => s.storageError);
+  const settings = useAppState((s) => s.settings);
+  useAppearance(settings.appearance);
+
+  useEffect(() => {
+    setHapticsEnabled(settings.haptics);
+  }, [settings.haptics]);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -87,7 +116,7 @@ export default function App() {
         </div>
       )}
       {screen}
-      {tabbed && <BottomNav current={route.name} />}
+      {tabbed && <TabBar current={route.name} />}
       <ToastHost />
     </div>
   );

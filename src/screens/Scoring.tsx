@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { Icon } from '../components/Icon';
 import { AcceptedTags, TopBar, toast, useConfirm, useNow, useWakeLock } from '../components/ui';
 import { getDay } from '../data/days';
 import { formatClock } from '../lib/format';
+import { haptic } from '../lib/haptics';
 import { navigate, replace } from '../lib/router';
 import { elapsedMs, nextUnfinishedMethod, scoreMethod, victimStatus } from '../lib/scoring';
 import { finishMethod, getState, pauseTimer, setTag, startTimer, useAppState } from '../lib/store';
@@ -54,6 +56,7 @@ function MethodPanel({
 
   /** After a method finishes: next method on this same screen, or the results when all are done. */
   function afterFinish() {
+    haptic('success');
     const latest = getState().evaluations[id];
     const s = scoreMethod(day, method, latest?.runs[method]);
     const next = latest ? nextUnfinishedMethod(latest) : null;
@@ -61,13 +64,18 @@ function MethodPanel({
     if (explicit || !next) replace(next ? { name: 'score', id } : { name: 'sheet', id });
   }
 
+  function select(victimId: string) {
+    haptic('select');
+    setSelected(selected === victimId ? null : victimId);
+  }
+
   function applyTag(tag: Tag | null) {
     if (!selected) return;
-    navigator.vibrate?.(12);
     setUndoStack((s) => [...s.slice(-30), { victimId: selected, previous: run?.answers[selected] ?? null }]);
     const completed = setTag(id, method, selected, tag);
     setSelected(null);
     if (completed) afterFinish();
+    else haptic('tap');
   }
 
   // Tablets with a keyboard: G / Y / R / B tag the selected victim.
@@ -81,9 +89,21 @@ function MethodPanel({
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  function start() {
+    haptic('start');
+    startTimer(id, method);
+  }
+
+  function togglePause() {
+    haptic('start');
+    if (running) pauseTimer(id, method);
+    else startTimer(id, method);
+  }
+
   function undo() {
     const last = undoStack[undoStack.length - 1];
     if (!last) return;
+    haptic('select');
     setTag(id, method, last.victimId, last.previous);
     setUndoStack((s) => s.slice(0, -1));
     setSelected(last.victimId);
@@ -91,6 +111,7 @@ function MethodPanel({
 
   async function finish() {
     if (score.untagged > 0) {
+      haptic('warning');
       const ok = await confirm.ask({
         title: `Finish ${method} now?`,
         message: (
@@ -132,9 +153,13 @@ function MethodPanel({
             const state = m === method ? 'current' : r?.finishedAt ? 'done' : '';
             return (
               <li key={m} className={state} aria-current={m === method ? 'step' : undefined}>
-                <span className="step-num">{state === 'done' ? '✓' : i + 1}</span>
+                {state === 'done' ? <Icon name="check" size={14} stroke={3} /> : <span className="step-num">{i + 1}</span>}
                 <span className="step-name">{m}</span>
-                {state === 'done' && <span className="step-score">{s.correct}/{s.total}</span>}
+                {state === 'done' && (
+                  <span className="step-score mono">
+                    {s.correct}/{s.total}
+                  </span>
+                )}
               </li>
             );
           })}
@@ -144,37 +169,33 @@ function MethodPanel({
       <div className="run-layout">
         <section className="run-left">
           {started ? (
-            <div className={`timer-bar ${running ? 'running' : 'paused'}`}>
+            <div className={`timer-panel ${running ? 'running' : 'paused'}`}>
               <div className="timer-readout">
-                <span className="timer-time">{formatClock(elapsedMs(run, now))}</span>
-                <span className="timer-state">
-                  {method} · {running ? 'running' : 'paused'}
+                <span className="eyebrow">
+                  {method} · {running ? 'Running' : 'Paused'}
                 </span>
+                <span className="timer-time mono">{formatClock(elapsedMs(run, now))}</span>
               </div>
               <div className="timer-progress">
-                <strong>
-                  {score.tagged}/{score.total}
-                </strong>{' '}
-                tagged
+                <span className="mono">
+                  <strong>{score.tagged}</strong>/{score.total}
+                </span>
+                <span className="label">tagged</span>
               </div>
-              <button
-                type="button"
-                className="btn secondary"
-                onClick={() => (running ? pauseTimer(id, method) : startTimer(id, method))}
-              >
-                {running ? 'Pause' : 'Resume'}
+              <button type="button" className="timer-toggle" onClick={togglePause} aria-label={running ? 'Pause stopwatch' : 'Resume stopwatch'}>
+                <Icon name={running ? 'pause' : 'play'} size={22} />
               </button>
             </div>
           ) : (
-            <button type="button" className="start-bar" onClick={() => startTimer(id, method)}>
-              <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
-                <path d="M8 5v14l11-7z" fill="currentColor" />
-              </svg>
-              <span>
-                Start {method}
-                <small>
+            <button type="button" className="start-bar" onClick={start}>
+              <span className="start-icon">
+                <Icon name="play" size={22} />
+              </span>
+              <span className="start-text">
+                <span className="start-title">Start {method}</span>
+                <span className="start-sub">
                   Method {index + 1} of {day.methods.length} · starts the stopwatch
-                </small>
+                </span>
               </span>
             </button>
           )}
@@ -191,10 +212,14 @@ function MethodPanel({
                   className={`victim ${tag ? `tag-${tag.toLowerCase()}` : ''} ${selected === v.id ? 'selected' : ''}`}
                   aria-pressed={selected === v.id}
                   aria-label={`${v.id}${tag ? `, tagged ${TAG_LABEL[tag]}, ${status}` : ', not tagged'}`}
-                  onClick={() => setSelected(selected === v.id ? null : v.id)}
+                  onClick={() => select(v.id)}
                 >
-                  <span className="victim-id">{v.id}</span>
-                  {tag && <span className={`victim-mark ${status}`}>{status === 'correct' ? '✓' : '✗'}</span>}
+                  <span className="victim-id mono">{v.id}</span>
+                  {tag && (
+                    <span className={`victim-mark ${status}`}>
+                      <Icon name={status === 'correct' ? 'check' : 'x'} size={12} stroke={3.2} />
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -206,8 +231,8 @@ function MethodPanel({
             {selectedVictim ? (
               <>
                 <div className="answer-head">
-                  <span className="answer-victim">{selectedVictim.id}</span>
-                  <span className="answer-label">Correct:</span>
+                  <span className="answer-victim mono">{selectedVictim.id}</span>
+                  <span className="label">Correct</span>
                   <AcceptedTags tags={selectedVictim.correct[method]?.tags ?? []} />
                 </div>
                 {selectedVictim.correct[method]?.note && <p className="answer-note">{selectedVictim.correct[method]?.note}</p>}
@@ -233,15 +258,16 @@ function MethodPanel({
 
           {started && (
             <div className="run-footer">
-              <button type="button" className="btn secondary" onClick={undo} disabled={undoStack.length === 0}>
+              <button type="button" className="btn outline" onClick={undo} disabled={undoStack.length === 0}>
+                <Icon name="undo-2" size={18} />
                 Undo
               </button>
               {selectedTag && (
-                <button type="button" className="btn secondary" onClick={() => applyTag(null)}>
+                <button type="button" className="btn outline" onClick={() => applyTag(null)}>
                   Clear {selected}
                 </button>
               )}
-              <button type="button" className="btn primary grow" onClick={finish}>
+              <button type="button" className="btn final grow" onClick={finish}>
                 Finish {method}
               </button>
             </div>

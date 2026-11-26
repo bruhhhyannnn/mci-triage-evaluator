@@ -8,12 +8,23 @@ const KEYS = {
   drill: 'mci-eval:drill:v1',
   evaluations: 'mci-eval:evaluations:v1',
   roster: 'mci-eval:roster:v1',
+  settings: 'mci-eval:settings:v1',
 } as const;
+
+export type Appearance = 'system' | 'light' | 'dark';
+
+export interface Settings {
+  appearance: Appearance;
+  haptics: boolean;
+}
+
+const DEFAULT_SETTINGS: Settings = { appearance: 'system', haptics: true };
 
 export interface AppState {
   drill: Drill | null;
   evaluations: Record<string, Evaluation>;
   roster: RosterEntry[];
+  settings: Settings;
   /** Set when the last write to device storage failed (e.g. storage full or blocked). */
   storageError: string | null;
 }
@@ -31,6 +42,7 @@ let state: AppState = {
   drill: read<Drill | null>(KEYS.drill, null),
   evaluations: read<Record<string, Evaluation>>(KEYS.evaluations, {}),
   roster: read<RosterEntry[]>(KEYS.roster, []),
+  settings: { ...DEFAULT_SETTINGS, ...read<Partial<Settings>>(KEYS.settings, {}) },
   storageError: null,
 };
 
@@ -50,6 +62,7 @@ function setState(patch: Partial<Omit<AppState, 'storageError'>>) {
   if ('drill' in patch) error = persist(KEYS.drill, patch.drill) ?? error;
   if ('evaluations' in patch) error = persist(KEYS.evaluations, patch.evaluations) ?? error;
   if ('roster' in patch) error = persist(KEYS.roster, patch.roster) ?? error;
+  if ('settings' in patch) error = persist(KEYS.settings, patch.settings) ?? error;
   state = { ...state, ...patch, storageError: error };
   listeners.forEach((l) => l());
 }
@@ -73,9 +86,16 @@ if (typeof window !== 'undefined') {
     if (event.key === KEYS.drill) state = { ...state, drill: read(KEYS.drill, null) };
     else if (event.key === KEYS.evaluations) state = { ...state, evaluations: read(KEYS.evaluations, {}) };
     else if (event.key === KEYS.roster) state = { ...state, roster: read(KEYS.roster, []) };
+    else if (event.key === KEYS.settings) state = { ...state, settings: { ...DEFAULT_SETTINGS, ...read(KEYS.settings, {}) } };
     else return;
     listeners.forEach((l) => l());
   });
+}
+
+// ---------- Settings ----------
+
+export function updateSettings(patch: Partial<Settings>) {
+  setState({ settings: { ...state.settings, ...patch } });
 }
 
 // ---------- Drill ----------
@@ -240,4 +260,65 @@ export function removeRosterEntry(id: string) {
 
 export function clearRoster() {
   setState({ roster: [] });
+}
+
+// ---------- Backup ----------
+
+export interface Backup {
+  app: 'mci-triage-evaluator';
+  version: 1;
+  exportedAt: string;
+  evaluations: Evaluation[];
+  roster: RosterEntry[];
+}
+
+export function makeBackup(): Backup {
+  return {
+    app: 'mci-triage-evaluator',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    evaluations: evaluationsList(state.evaluations),
+    roster: state.roster,
+  };
+}
+
+function isEvaluation(value: unknown): value is Evaluation {
+  const e = value as Evaluation;
+  return (
+    !!e &&
+    typeof e.id === 'string' &&
+    typeof e.traineeName === 'string' &&
+    (e.day === 'day1' || e.day === 'day2' || e.day === 'day3') &&
+    typeof e.runs === 'object' &&
+    typeof e.updatedAt === 'string'
+  );
+}
+
+/**
+ * Merges a backup into this device: sheets are matched by id and the newer copy wins,
+ * roster names are added if missing. Nothing on this device is deleted.
+ */
+export function restoreBackup(data: unknown): { sheets: number; names: number } {
+  const backup = data as Partial<Backup>;
+  if (!backup || backup.app !== 'mci-triage-evaluator' || !Array.isArray(backup.evaluations)) {
+    throw new Error('This is not an MCI Triage Evaluator backup file.');
+  }
+  const evaluations = { ...state.evaluations };
+  let sheets = 0;
+  for (const e of backup.evaluations) {
+    if (!isEvaluation(e)) continue;
+    const current = evaluations[e.id];
+    if (!current || e.updatedAt > current.updatedAt) {
+      evaluations[e.id] = { ...e, runs: e.runs ?? {}, completedAt: e.completedAt ?? null };
+      sheets += 1;
+    }
+  }
+  setState({ evaluations });
+  const names = Array.isArray(backup.roster)
+    ? addRosterEntries(
+        backup.roster.filter((r) => r && typeof r.name === 'string').map((r) => ({ name: r.name, group: r.group ?? '' })),
+        'merge',
+      )
+    : 0;
+  return { sheets, names };
 }

@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { AcceptedTags, Sheet, TagChip, TopBar, toast, useConfirm } from '../components/ui';
+import { Icon } from '../components/Icon';
+import { AcceptedTags, SegmentedControl, Sheet, StatusChip, TagChip, TopBar, toast, useConfirm } from '../components/ui';
 import { getDay } from '../data/days';
 import { formatClock, formatDate, parseClock, percent } from '../lib/format';
+import { haptic } from '../lib/haptics';
 import { navigate, replace } from '../lib/router';
 import { nextUnfinishedMethod, scoreEvaluation, victimStatus } from '../lib/scoring';
 import { deleteEvaluation, resetMethod, setTag, setTime, updateDetails, useAppState } from '../lib/store';
@@ -63,10 +65,12 @@ export default function SheetResults({ id }: { id: string }) {
   function saveTime() {
     const value = parseClock(timeText ?? '');
     if (value === null) {
-      toast('Enter time as minutes:seconds, e.g. 3:05');
+      haptic('warning');
+      toast('Enter time as minutes:seconds, for example 3:05');
       return;
     }
     setTime(id, method, value);
+    haptic('tap');
     setTimeText(null);
   }
 
@@ -79,7 +83,10 @@ export default function SheetResults({ id }: { id: string }) {
         right={
           <button
             type="button"
-            className="link-btn"
+            className="icon-btn card"
+            style={{ width: 44, height: 44 }}
+            aria-label="Edit sheet details"
+            title="Edit sheet details"
             onClick={() =>
               setDetails({
                 traineeName: evaluation.traineeName,
@@ -89,18 +96,24 @@ export default function SheetResults({ id }: { id: string }) {
               })
             }
           >
-            Edit
+            <Icon name="pencil" size={18} />
           </button>
         }
       />
 
-      <section className="card score-card total" aria-label={`${day.label} score`}>
-        <div className="score-big">
-          <span className="score-num">
-            {score.correct}
-            <small>/{score.total}</small>
-          </span>
-          <span className="score-pct">{percent(score.accuracy)}</span>
+      <section className="card score-card" aria-label={`${day.label} score`}>
+        <div className="score-top">
+          <div>
+            <div className="eyebrow">{day.label} score</div>
+            <div className="moment">
+              {score.correct}
+              <span className="moment-of">/{score.total}</span>
+            </div>
+          </div>
+          <div className="score-side">
+            <span className="score-pct mono">{percent(score.accuracy)}</span>
+            {evaluation.completedAt ? <StatusChip status="live">Saved</StatusChip> : <StatusChip status="pending">Not finished</StatusChip>}
+          </div>
         </div>
         <div className="method-bars">
           {score.methods.map((m) => (
@@ -109,112 +122,120 @@ export default function SheetResults({ id }: { id: string }) {
               <span className="method-bar-track">
                 <span className="method-bar-fill" style={{ width: `${m.accuracy * 100}%` }} />
               </span>
-              <span className="method-bar-score">
-                {m.finished || m.started ? `${m.correct}/${m.total}` : '—'}
-              </span>
+              <span className="method-bar-score mono">{m.finished || m.started ? `${m.correct}/${m.total}` : '—'}</span>
             </div>
           ))}
         </div>
-        <p className="muted small">
-          {evaluation.completedAt ? 'Saved' : 'Not finished'} · total time {formatClock(score.timeMs)} · evaluator{' '}
-          {evaluation.evaluatorName || '—'}
+        <p className="meta-line small">
+          <Icon name="clock" size={14} />
+          <span className="mono">{formatClock(score.timeMs)}</span> total · {evaluation.evaluatorName || 'No evaluator'}
         </p>
       </section>
 
       {next && (
-        <button type="button" className="card resume-card" onClick={() => navigate({ name: 'score', id })}>
-          <span>
-            <strong>{next} not finished</strong>
-            <span className="muted">Tap to continue scoring</span>
+        <button type="button" className="row-card pending" onClick={() => navigate({ name: 'score', id })}>
+          <span className="row-main">
+            <span className="row-title">{next} is not finished</span>
+            <span className="row-sub">Tap to continue scoring</span>
           </span>
-          <span className="resume-go">Continue</span>
+          <StatusChip status="pending">Continue</StatusChip>
         </button>
       )}
 
       <section className="stack-sm" aria-label="Details by method">
         {day.methods.length > 1 && (
-          <div className="segmented" role="tablist" aria-label="Method">
-            {score.methods.map((m) => (
-              <button
-                key={m.method}
-                type="button"
-                role="tab"
-                aria-selected={method === m.method}
-                onClick={() => setTab(m.method)}
-              >
-                {m.method}
-                {m.wrong + m.untagged > 0 && m.started && <span className="tab-count">{m.wrong + m.untagged}</span>}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl<Method>
+            label="Method"
+            value={method}
+            onChange={setTab}
+            options={score.methods.map((m) => ({
+              value: m.method,
+              label: (
+                <>
+                  {m.method}
+                  {m.started && m.wrong + m.untagged > 0 && <span className="tab-count">{m.wrong + m.untagged}</span>}
+                </>
+              ),
+            }))}
+          />
         )}
 
         <div className="method-detail">
           <span>
-            <strong>
+            <strong className="mono">
               {ms.correct}/{ms.total}
-            </strong>{' '}
-            · {ms.wrong} wrong · {ms.untagged} not tagged
+            </strong>
+            <span className="muted">
+              {' '}
+              · {ms.wrong} wrong · {ms.untagged} not tagged
+            </span>
           </span>
-          <button type="button" className="link-btn" onClick={() => setTimeText(formatClock(ms.timeMs))}>
-            {formatClock(ms.timeMs)} ✎
+          <button type="button" className="btn ghost sm" onClick={() => setTimeText(formatClock(ms.timeMs))} aria-label={`Edit ${method} time`}>
+            <Icon name="timer" size={16} />
+            <span className="mono">{formatClock(ms.timeMs)}</span>
           </button>
         </div>
 
-        <ul className="list review-list">
-          <li className="review-row review-head" aria-hidden="true">
+        <div className="card list-card">
+          <div className="review-row review-head" aria-hidden="true">
             <span>Victim</span>
             <span>Tagged</span>
             <span>Correct</span>
             <span />
-          </li>
-          {rows.length === 0 && <li className="empty">All {ms.total} correct.</li>}
+          </div>
+          {rows.length === 0 && (
+            <div className="all-correct">
+              <StatusChip status="live">All {ms.total} correct</StatusChip>
+            </div>
+          )}
           {rows.map(({ victim, status }) => (
-            <li key={victim.id}>
-              <button type="button" className={`review-row ${status}`} onClick={() => setEditing(victim.id)}>
-                <span className="review-id">{victim.id}</span>
-                <span>
-                  <TagChip tag={run?.answers[victim.id]} size="sm" />
-                </span>
-                <span>
-                  <AcceptedTags tags={victim.correct[method]?.tags ?? []} />
-                </span>
-                <span className={`review-mark ${status}`} aria-label={status}>
-                  {status === 'correct' ? '✓' : status === 'wrong' ? '✗' : '–'}
-                </span>
-              </button>
-            </li>
+            <button key={victim.id} type="button" className={`review-row ${status}`} onClick={() => setEditing(victim.id)}>
+              <span className="review-id mono">{victim.id}</span>
+              <span>
+                <TagChip tag={run?.answers[victim.id]} size="sm" />
+              </span>
+              <span>
+                <AcceptedTags tags={victim.correct[method]?.tags ?? []} />
+              </span>
+              <span className={`review-mark ${status}`} aria-label={status}>
+                {status === 'untagged' ? '–' : <Icon name={status === 'correct' ? 'check' : 'x'} size={16} stroke={3} />}
+              </span>
+            </button>
           ))}
-        </ul>
+        </div>
         <div className="row spread">
-          <button type="button" className="link-btn" onClick={() => setShowAll(!showAll)}>
+          <button type="button" className="btn ghost sm" onClick={() => setShowAll(!showAll)}>
             {showAll ? 'Show mistakes only' : `Show all ${ms.total} victims`}
           </button>
           {ms.started && (
-            <button type="button" className="link-btn danger" onClick={redo}>
+            <button type="button" className="btn ghost sm danger-text" onClick={redo}>
+              <Icon name="rotate-ccw" size={16} />
               Redo {method}
             </button>
           )}
         </div>
       </section>
 
-      <button type="button" className="link-btn danger center" onClick={remove}>
+      <button type="button" className="btn ghost sm danger-text center" onClick={remove}>
+        <Icon name="trash-2" size={16} />
         Delete this sheet
       </button>
 
       <div className="actions-bar">
-        <button type="button" className="btn primary block xlarge" onClick={() => replace({ name: 'home' })}>
+        <button type="button" className="btn final block large" onClick={() => replace({ name: 'home' })}>
           Next trainee
+          <Icon name="arrow-right" size={20} />
         </button>
       </div>
 
-      <Sheet open={!!editingVictim} title={`${editing} · ${method}`} onClose={() => setEditing(null)}>
+      <Sheet open={!!editingVictim} title={`Change ${editing}`} eyebrow={method} onClose={() => setEditing(null)}>
         {editingVictim && (
           <>
-            <div className="sheet-body">
-              Correct: <AcceptedTags tags={editingVictim.correct[method]?.tags ?? []} />
-              {editingVictim.correct[method]?.note && <span className="answer-note">{editingVictim.correct[method]?.note}</span>}
+            <div className="sheet-body answer-head">
+              <span className="label">Correct</span>
+              <AcceptedTags tags={editingVictim.correct[method]?.tags ?? []} />
             </div>
+            {editingVictim.correct[method]?.note && <p className="answer-note">{editingVictim.correct[method]?.note}</p>}
             <div className="tag-buttons compact">
               {TAGS.map((tag) => (
                 <button
@@ -222,6 +243,7 @@ export default function SheetResults({ id }: { id: string }) {
                   type="button"
                   className={`tag-btn tag-${tag.toLowerCase()} ${run?.answers[editingVictim.id] === tag ? 'current' : ''}`}
                   onClick={() => {
+                    haptic('tap');
                     setTag(id, method, editingVictim.id, tag);
                     setEditing(null);
                   }}
@@ -233,8 +255,9 @@ export default function SheetResults({ id }: { id: string }) {
             <div className="sheet-actions">
               <button
                 type="button"
-                className="btn secondary"
+                className="btn outline"
                 onClick={() => {
+                  haptic('select');
                   setTag(id, method, editingVictim.id, null);
                   setEditing(null);
                 }}
@@ -242,7 +265,7 @@ export default function SheetResults({ id }: { id: string }) {
                 Clear tag
               </button>
               <button type="button" className="btn primary" onClick={() => setEditing(null)}>
-                Close
+                Done
               </button>
             </div>
           </>
@@ -251,8 +274,9 @@ export default function SheetResults({ id }: { id: string }) {
 
       <Sheet open={timeText !== null} title={`${method} time`} onClose={() => setTimeText(null)}>
         <label className="field">
-          <span>Minutes:seconds</span>
+          <span className="label">Minutes:seconds</span>
           <input
+            className="input mono"
             inputMode="numeric"
             value={timeText ?? ''}
             onChange={(e) => setTimeText(e.target.value)}
@@ -261,7 +285,7 @@ export default function SheetResults({ id }: { id: string }) {
           />
         </label>
         <div className="sheet-actions">
-          <button type="button" className="btn secondary" onClick={() => setTimeText(null)}>
+          <button type="button" className="btn outline" onClick={() => setTimeText(null)}>
             Cancel
           </button>
           <button type="button" className="btn primary" onClick={saveTime}>
@@ -274,25 +298,25 @@ export default function SheetResults({ id }: { id: string }) {
         {details && (
           <div className="stack">
             <label className="field">
-              <span>Trainee full name</span>
-              <input value={details.traineeName} onChange={(e) => setDetails({ ...details, traineeName: e.target.value })} />
+              <span className="label">Trainee full name</span>
+              <input className="input" value={details.traineeName} onChange={(e) => setDetails({ ...details, traineeName: e.target.value })} />
             </label>
-            <div className="field-row">
-              <label className="field">
-                <span>Date</span>
-                <input type="date" value={details.date} onChange={(e) => setDetails({ ...details, date: e.target.value })} />
+            <div className="row">
+              <label className="field grow">
+                <span className="label">Date</span>
+                <input className="input" type="date" value={details.date} onChange={(e) => setDetails({ ...details, date: e.target.value })} />
               </label>
-              <label className="field">
-                <span>Group</span>
-                <input value={details.group} onChange={(e) => setDetails({ ...details, group: e.target.value })} />
+              <label className="field grow">
+                <span className="label">Group</span>
+                <input className="input" value={details.group} onChange={(e) => setDetails({ ...details, group: e.target.value })} />
               </label>
             </div>
             <label className="field">
-              <span>Evaluator</span>
-              <input value={details.evaluatorName} onChange={(e) => setDetails({ ...details, evaluatorName: e.target.value })} />
+              <span className="label">Evaluator</span>
+              <input className="input" value={details.evaluatorName} onChange={(e) => setDetails({ ...details, evaluatorName: e.target.value })} />
             </label>
             <div className="sheet-actions">
-              <button type="button" className="btn secondary" onClick={() => setDetails(null)}>
+              <button type="button" className="btn outline" onClick={() => setDetails(null)}>
                 Cancel
               </button>
               <button
@@ -300,6 +324,7 @@ export default function SheetResults({ id }: { id: string }) {
                 className="btn primary"
                 onClick={() => {
                   updateDetails(id, details);
+                  haptic('tap');
                   setDetails(null);
                   toast('Details updated.');
                 }}

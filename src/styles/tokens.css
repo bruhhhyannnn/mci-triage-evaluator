@@ -1,0 +1,194 @@
+/*
+ * Design tokens from the Wireframe-to-Hi-fi Design System
+ * (https://claude.ai/artifact/NCrDc2qMWWX5K3udr6N2pC), hi-fi theme.
+ * Token names and roles are the system's; product code uses the semantic tokens.
+ * The low-fi / mid-fi / canvas / map palettes are process-only and left out.
+ * Domain tokens (triage tags) are at the bottom.
+ */
+:root,
+[data-theme='light'] {
+  --navy-50: #eaf0f8;
+  --navy-200: #b9cbe6;
+  --navy-400: #5f7fae;
+  --navy-600: #1f4c86;
+  --navy-800: #173d70;
+  --navy-900: #11305a;
+  --navy-950: #0b1b33;
+  --blue-50: #e6f1ff;
+  --blue-100: #cfe2ff;
+  --blue-300: #5a9ef2;
+  --blue-500: #2a80ea;
+  --blue-600: #1670e0;
+  --blue-700: #0f5cc0;
+  --blue-800: #0c4a9b;
+  --blue-hover: #0f57b3;
+  --yellow-50: #fff8e1;
+  --yellow-100: #ffefb8;
+  --yellow-200: #ffdd7a;
+  --yellow-300: #ffd45c;
+  --yellow-400: #ffc62e;
+  --yellow-600: #e0a912;
+  --yellow-800: #4a3a06;
+  --emerald-50: #e3f8f0;
+  --emerald-100: #d3f5e8;
+  --emerald-400: #3fd0a0;
+  --emerald-500: #12b886;
+  --emerald-700: #0b7a58;
+  --slate-0: #ffffff;
+  --slate-50: #f6f8fc;
+  --slate-100: #edf1f7;
+  --slate-sky: #eef4fb;
+  --slate-200: #dde4ee;
+  --slate-300: #c6cfdb;
+  --slate-400: #98a4b5;
+  --slate-500: #6b7a90;
+  --slate-600: #4d5d74;
+  --slate-700: #33445c;
+  --coral-50: #ffe9ec;
+  --coral-500: #ef4b5f;
+  --coral-700: #b3263a;
+
+  --surface-page: var(--slate-sky);
+  --surface-card: var(--slate-0);
+  --surface-sunken: var(--slate-100);
+  --surface-inverse: var(--navy-900);
+  --surface-inverse-card: var(--navy-800);
+  --surface-action-soft: var(--blue-50);
+  --border-divider: var(--slate-200);
+  --border-control: var(--slate-300);
+  --text-strong: var(--navy-950);
+  --text-muted: var(--slate-600);
+  --text-meta: var(--slate-500);
+  --text-on-action: #ffffff;
+  --text-on-accent: var(--navy-950);
+  --text-on-inverse: #ffffff;
+  --text-link: var(--blue-600);
+  --text-link-hover: var(--blue-hover);
+  --action-primary: var(--blue-600);
+  --action-primary-hover: var(--blue-700);
+  --action-primary-press: var(--blue-800);
+  --action-final: var(--navy-900);
+  --accent-moment: var(--yellow-400);
+  --accent-moment-hover: var(--yellow-300);
+  --status-live: var(--emerald-500);
+  --status-live-soft: var(--emerald-50);
+  --status-live-ink: var(--emerald-700);
+  --status-pending-soft: var(--yellow-100);
+  --status-pending-ink: var(--yellow-800);
+  --status-error: var(--coral-500);
+  --status-error-soft: var(--coral-50);
+  --status-error-ink: var(--coral-700);
+  --status-stale: var(--slate-400);
+  --disabled-bg: var(--slate-200);
+  --disabled-fg: var(--slate-400);
+  --focus-ring: var(--blue-300);
+
+  --shadow-sm: 0 1px 3px rgba(17, 48, 90, 0.08);
+  --shadow-md: 0 10px 26px rgba(17, 48, 90, 0.1);
+  --shadow-lg: 0 18px 40px rgba(17, 48, 90, 0.22);
+  --scrim: rgba(11, 27, 51, 0.45);
+}
+
+[data-theme='dark'] {
+  --surface-page: #0b1628;
+  --surface-card: #16263f;
+  --surface-sunken: #1c2d48;
+  --surface-inverse: var(--navy-900);
+  --surface-inverse-card: var(--navy-800);
+  --surface-action-soft: #17345c;
+  --border-divider: #26395a;
+  --border-control: #30476b;
+  --text-strong: #eef3fa;
+  --text-muted: #93a3bb;
+  --text-meta: #93a3bb;
+  --text-on-action: #0b1b33;
+  --text-on-accent: var(--navy-950);
+  --text-link: #5aa3ff;
+  --text-link-hover: #8cc0ff;
+  --action-primary: #5aa3ff;
+  --action-primary-hover: #7db6ff;
+  --action-primary-press: #3d8ff5;
+  --action-final: #eef3fa;
+  --status-live-soft: #12382f;
+  --status-live-ink: #3fd0a0;
+  --status-pending-soft: #3a3010;
+  --status-pending-ink: #ffdd7a;
+  --status-error-soft: #3d1a22;
+  --status-error-ink: #ff8b99;
+  --disabled-bg: #26395a;
+  --disabled-fg: #5f7089;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 10px 26px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 18px 40px rgba(0, 0, 0, 0.5);
+  --scrim: rgba(0, 0, 0, 0.6);
+}
+
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --gutter-screen: 20px;
+  --radius-full: 999px;
+  --radius-sheet: 28px;
+  --radius-tabbar: 24px;
+  --radius-card: 22px;
+  --radius-input: 16px;
+  --radius-tile: 16px;
+  --tap-min: 48px;
+  --button-h: 52px;
+  --tabbar-h: 66px;
+  --font-sans: 'Figtree Variable', 'Figtree', system-ui, sans-serif;
+  --font-mono: 'Spline Sans Mono Variable', 'Spline Sans Mono', ui-monospace, monospace;
+
+  /* Type roles */
+  --type-moment-size: 40px;
+  --type-moment-weight: 800;
+  --type-moment-lh: 1.05;
+  --type-title-size: 26px;
+  --type-title-weight: 800;
+  --type-title-lh: 1.15;
+  --type-heading-size: 17px;
+  --type-heading-weight: 700;
+  --type-heading-lh: 1.3;
+  --type-body-size: 15px;
+  --type-body-weight: 400;
+  --type-body-lh: 1.55;
+  --type-label-size: 12px;
+  --type-label-weight: 600;
+  --type-label-lh: 1.3;
+  --type-eyebrow-size: 10px;
+  --type-eyebrow-weight: 700;
+  --type-eyebrow-tracking: 0.08em;
+  --type-data-size: 14px;
+
+  /* Selection borders */
+  --border-selected: 2px solid var(--action-primary);
+  --border-unselected: 1.5px solid var(--border-divider);
+
+  /* Motion: 120–320ms ease-out, no bounce */
+  --ease-out: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+
+  /* Domain: START/SIEVE/SAVE/SORT triage tags. Fixed in both themes so a tag always looks the same. */
+  --tag-green: #1e8a4c;
+  --tag-green-ink: #ffffff;
+  --tag-yellow: #f5c518;
+  --tag-yellow-ink: #3b2d00;
+  --tag-red: #d32f2f;
+  --tag-red-ink: #ffffff;
+  --tag-black: #1a1d21;
+  --tag-black-ink: #ffffff;
+}
+
+[data-theme='dark'] {
+  /* Black tags need an edge on the dark page. */
+  --tag-black-edge: #5f7089;
+}
