@@ -162,15 +162,28 @@ export function useNow(active: boolean, intervalMs = 250): number {
   return active ? now : Date.now();
 }
 
-export function Steps({ methods, current, done }: { methods: string[]; current?: string; done: Set<string> }) {
-  return (
-    <ol className="steps" aria-label="Methods for this day">
-      {methods.map((m, i) => (
-        <li key={m} className={m === current ? 'current' : done.has(m) ? 'done' : ''} aria-current={m === current ? 'step' : undefined}>
-          <span className="step-num">{done.has(m) && m !== current ? '✓' : i + 1}</span>
-          {m}
-        </li>
-      ))}
-    </ol>
-  );
+/** Keeps the phone screen on while the stopwatch runs (where the browser supports it). */
+export function useWakeLock(active: boolean) {
+  useEffect(() => {
+    if (!active || !('wakeLock' in navigator)) return;
+    let lock: WakeLockSentinel | null = null;
+    let cancelled = false;
+    const request = () =>
+      navigator.wakeLock
+        .request('screen')
+        .then((l) => {
+          if (cancelled) l.release();
+          else lock = l;
+        })
+        .catch(() => {});
+    request();
+    // The lock drops when the app is backgrounded; take it again on return.
+    const onVisible = () => document.visibilityState === 'visible' && !cancelled && request();
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisible);
+      lock?.release().catch(() => {});
+    };
+  }, [active]);
 }

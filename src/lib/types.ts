@@ -51,17 +51,16 @@ export interface Evaluation {
   date: string;
   group: string;
   runs: Partial<Record<Method, MethodRun>>;
-  /** ISO time the evaluator saved the finished sheet; null while in progress. */
+  /** ISO time the last method was finished; null while any method is unfinished. */
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-/** Drill details set once and reused for every trainee. */
+/** Drill details set once and reused for every trainee. Each sheet is dated the day it is created. */
 export interface Drill {
   day: DayKey;
   evaluatorName: string;
-  date: string;
   group: string;
 }
 

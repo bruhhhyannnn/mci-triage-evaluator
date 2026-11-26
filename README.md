@@ -12,15 +12,15 @@ Answer keys and point totals are carried over unchanged from the original MCI Tr
 
 ## Evaluator flow
 
-1. **Set up the drill** once: day, evaluator, date, group or batch.
-2. **Pick the trainee**: search by last name or full name (from the roster or anyone saved before), or type a new full name.
-3. **Run each method**: a single "Start stopwatch" screen, then a focused scoring screen with only the stopwatch, the victim grid and the four tag colors. Tap the victim the trainee is at, then the tag they give. The correct tag (and any condition, e.g. T20) shows for the selected victim. The stopwatch stops by itself when every victim is tagged; "Done" finishes early (untagged victims score 0).
-4. **Review** the method: score, time, and wrong or untagged victims; fix any tag, then go on to the next method.
-5. **Summary**: day score per method → *Save and evaluate next trainee*.
+Two tabs: **Evaluate** and **Results**.
 
-Other screens: **Records** (filter by name, day, group, status; per-trainee Day 1/2/3 view; Excel and CSV export) and **Roster** (import a .csv/.xlsx list of names or add names one by one).
+1. **Evaluate tab**: pick the day at the top, then tap the trainee's name (from the roster or anyone saved before) or type a new full name and press Go. The evaluator's name and group are asked once and shown at the top.
+2. **Scoring screen** (one screen for the whole day): tap **Start START** when the trainee begins. While the stopwatch runs, the screen shows only the timer, the victim grid and the four tag colors. Tap the victim the trainee is at, then the tag they give; the correct tag (and any condition, e.g. T20) shows for the selected victim. The stopwatch stops by itself when every victim is tagged (or tap **Finish**; untagged victims score 0), and the same screen moves on to the next method (e.g. **Start SIEVE**).
+3. **Results**: after the last method the sheet saves itself and shows the day score, each method's mistakes (tap one to fix it), time, and **Next trainee**.
 
-Everything is stored on the device (`localStorage`) and works offline once loaded (installable PWA). The CSV export uses the same columns as the original app.
+The **Results tab** lists every trainee with their Day 1/2/3 scores (or every sheet, filterable by day), filters by name and group, exports to Excel or CSV, and holds the roster import (.csv/.xlsx or one name at a time).
+
+Everything is stored on the device (`localStorage`) and works offline once loaded (installable PWA). The screen stays awake while a stopwatch runs. The CSV export uses the same columns as the original app.
 
 ## Development
 

@@ -81,11 +81,17 @@ if (typeof window !== 'undefined') {
 // ---------- Drill ----------
 
 export function saveDrill(drill: Drill) {
-  setState({ drill: { ...drill, evaluatorName: cleanName(drill.evaluatorName), group: cleanName(drill.group) } });
+  setState({
+    drill: { day: drill.day, evaluatorName: cleanName(drill.evaluatorName), group: cleanName(drill.group) },
+  });
+}
+
+export function setDrillDay(day: DayKey) {
+  setState({ drill: { ...(state.drill ?? defaultDrill()), day } });
 }
 
 export function defaultDrill(): Drill {
-  return { day: 'day1', evaluatorName: '', date: todayISO(), group: '' };
+  return { day: 'day1', evaluatorName: '', group: '' };
 }
 
 // ---------- Evaluations ----------
@@ -100,15 +106,15 @@ function updateEvaluation(id: string, change: (e: Evaluation) => Evaluation) {
   putEvaluation({ ...change(current), updatedAt: new Date().toISOString() });
 }
 
-export function createEvaluation(traineeName: string, drill: Drill): Evaluation {
+export function createEvaluation(traineeName: string, drill: Drill, rosterGroup = ''): Evaluation {
   const now = new Date().toISOString();
   const evaluation: Evaluation = {
     id: newId('eval'),
     day: drill.day,
     traineeName: cleanName(traineeName),
     evaluatorName: drill.evaluatorName,
-    date: drill.date,
-    group: drill.group,
+    date: todayISO(),
+    group: drill.group || cleanName(rosterGroup),
     runs: {},
     completedAt: null,
     createdAt: now,
@@ -131,8 +137,17 @@ export function updateDetails(
   }));
 }
 
+/** A sheet is complete once every method of its day is finished; it saves itself then. */
+function withCompletion(e: Evaluation): Evaluation {
+  const done = getDay(e.day).methods.every((m) => !!e.runs[m]?.finishedAt);
+  if (done) return e.completedAt ? e : { ...e, completedAt: new Date().toISOString() };
+  return e.completedAt ? { ...e, completedAt: null } : e;
+}
+
 function updateRun(id: string, method: Method, change: (run: MethodRun) => MethodRun) {
-  updateEvaluation(id, (e) => ({ ...e, runs: { ...e.runs, [method]: change(e.runs[method] ?? emptyRun()) } }));
+  updateEvaluation(id, (e) =>
+    withCompletion({ ...e, runs: { ...e.runs, [method]: change(e.runs[method] ?? emptyRun()) } }),
+  );
 }
 
 export function startTimer(id: string, method: Method) {
@@ -181,17 +196,6 @@ export function finishMethod(id: string, method: Method) {
 
 export function resetMethod(id: string, method: Method) {
   updateRun(id, method, () => emptyRun());
-}
-
-export function completeEvaluation(id: string) {
-  updateEvaluation(id, (e) => {
-    const runs = { ...e.runs };
-    for (const m of Object.keys(runs) as Method[]) {
-      const run = runs[m]!;
-      runs[m] = { ...run, elapsedMs: elapsedMs(run), startedAt: null, finishedAt: run.finishedAt ?? new Date().toISOString() };
-    }
-    return { ...e, runs, completedAt: e.completedAt ?? new Date().toISOString() };
-  });
 }
 
 export function deleteEvaluation(id: string) {

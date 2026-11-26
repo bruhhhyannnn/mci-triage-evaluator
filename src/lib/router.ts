@@ -3,39 +3,21 @@ import type { Method } from './types';
 
 export type Route =
   | { name: 'home' }
-  | { name: 'setup' }
-  | { name: 'trainee' }
-  | { name: 'run'; id: string; method: Method }
-  | { name: 'review'; id: string; method: Method }
-  | { name: 'summary'; id: string }
-  | { name: 'records' }
-  | { name: 'roster' };
+  /** Scoring screen. Without a method it runs the sheet's next unfinished method. */
+  | { name: 'score'; id: string; method?: Method }
+  | { name: 'sheet'; id: string }
+  | { name: 'results' };
 
 const METHODS = new Set(['START', 'SIEVE', 'SAVE', 'SORT']);
 
 export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
-  const [first, id, method, extra] = parts;
-  switch (first) {
-    case undefined:
-      return { name: 'home' };
-    case 'setup':
-      return { name: 'setup' };
-    case 'trainee':
-      return { name: 'trainee' };
-    case 'records':
-      return { name: 'records' };
-    case 'roster':
-      return { name: 'roster' };
-    case 'e':
-      if (!id) break;
-      if (method === 'summary') return { name: 'summary', id };
-      if (method && METHODS.has(method)) {
-        return extra === 'review'
-          ? { name: 'review', id, method: method as Method }
-          : { name: 'run', id, method: method as Method };
-      }
-      return { name: 'summary', id };
+  const [first, id, second] = parts;
+  if (first === 'results') return { name: 'results' };
+  if (first === 'e' && id) {
+    if (second === 'results') return { name: 'sheet', id };
+    if (second && METHODS.has(second)) return { name: 'score', id, method: second as Method };
+    return { name: 'score', id };
   }
   return { name: 'home' };
 }
@@ -44,14 +26,12 @@ export function href(route: Route): string {
   switch (route.name) {
     case 'home':
       return '#/';
-    case 'run':
-      return `#/e/${encodeURIComponent(route.id)}/${route.method}`;
-    case 'review':
-      return `#/e/${encodeURIComponent(route.id)}/${route.method}/review`;
-    case 'summary':
-      return `#/e/${encodeURIComponent(route.id)}/summary`;
-    default:
-      return `#/${route.name}`;
+    case 'results':
+      return '#/results';
+    case 'score':
+      return `#/e/${encodeURIComponent(route.id)}${route.method ? `/${route.method}` : ''}`;
+    case 'sheet':
+      return `#/e/${encodeURIComponent(route.id)}/results`;
   }
 }
 
@@ -60,7 +40,7 @@ export function navigate(route: Route) {
   window.location.hash = href(route);
 }
 
-/** Swaps the current history entry, e.g. so Back skips a finished timer screen. */
+/** Swaps the current history entry, so Back skips screens that are done with. */
 export function replace(route: Route) {
   const url = `${window.location.pathname}${window.location.search}${href(route)}`;
   window.history.replaceState(null, '', url);
