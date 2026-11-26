@@ -6,7 +6,7 @@ import { formatClock } from '../lib/format';
 import { haptic } from '../lib/haptics';
 import { navigate, replace } from '../lib/router';
 import { elapsedMs, nextUnfinishedMethod, scoreMethod, victimStatus } from '../lib/scoring';
-import { finishMethod, getState, pauseTimer, setTag, startTimer, useAppState } from '../lib/store';
+import { finishMethod, getState, pauseTimer, reopenMethod, setTag, startTimer, useAppState } from '../lib/store';
 import type { DayConfig, Evaluation, Method, Tag } from '../lib/types';
 import { TAGS, TAG_LABEL } from '../lib/types';
 import NotFound from './NotFound';
@@ -54,13 +54,23 @@ function MethodPanel({
   const selectedVictim = day.victims.find((v) => v.id === selected) ?? null;
   const selectedTag = selected ? run?.answers[selected] : undefined;
 
-  /** After a method finishes: next method on this same screen, or the results when all are done. */
-  function afterFinish() {
+  /**
+   * After a method finishes: next method on this same screen, or the results when all are
+   * done. The message offers Undo in case the last tap was a mistake.
+   */
+  function afterFinish(lastTag?: { victimId: string; previous: Tag | null }) {
     haptic('success');
     const latest = getState().evaluations[id];
     const s = scoreMethod(day, method, latest?.runs[method]);
     const next = latest ? nextUnfinishedMethod(latest) : null;
-    toast(next ? `${method} done: ${s.correct}/${s.total}. Next: ${next}.` : `${method} done: ${s.correct}/${s.total}. Sheet saved.`);
+    toast(next ? `${method} done: ${s.correct}/${s.total}. Next: ${next}.` : `${method} done: ${s.correct}/${s.total}. Sheet saved.`, {
+      label: 'Undo',
+      onClick: () => {
+        haptic('select');
+        reopenMethod(id, method, lastTag);
+        replace({ name: 'score', id, method });
+      },
+    });
     if (explicit || !next) replace(next ? { name: 'score', id } : { name: 'sheet', id });
   }
 
@@ -71,10 +81,11 @@ function MethodPanel({
 
   function applyTag(tag: Tag | null) {
     if (!selected) return;
-    setUndoStack((s) => [...s.slice(-30), { victimId: selected, previous: run?.answers[selected] ?? null }]);
+    const change = { victimId: selected, previous: run?.answers[selected] ?? null };
+    setUndoStack((s) => [...s.slice(-30), change]);
     const completed = setTag(id, method, selected, tag);
     setSelected(null);
-    if (completed) afterFinish();
+    if (completed) afterFinish(change);
     else haptic('tap');
   }
 

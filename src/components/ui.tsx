@@ -273,30 +273,47 @@ export function useConfirm() {
   return { ask, element };
 }
 
-/** Short message that fades on its own. */
-let toastListener: ((text: string) => void) | null = null;
-export function toast(text: string) {
-  toastListener?.(text);
+/** Short message that fades on its own, optionally with one action (e.g. Undo). */
+interface ToastMessage {
+  text: string;
+  action?: { label: string; onClick: () => void };
+  key: number;
+}
+let toastListener: ((message: Omit<ToastMessage, 'key'>) => void) | null = null;
+export function toast(text: string, action?: { label: string; onClick: () => void }) {
+  toastListener?.({ text, action });
 }
 
 export function ToastHost() {
-  const [message, setMessage] = useState<{ text: string; key: number } | null>(null);
+  const [message, setMessage] = useState<ToastMessage | null>(null);
   useEffect(() => {
-    toastListener = (text) => setMessage({ text, key: Date.now() });
+    toastListener = (m) => setMessage({ ...m, key: Date.now() });
     return () => {
       toastListener = null;
     };
   }, []);
   useEffect(() => {
     if (!message) return;
-    const t = setTimeout(() => setMessage(null), 2600);
+    const t = setTimeout(() => setMessage(null), message.action ? 5000 : 2600);
     return () => clearTimeout(t);
   }, [message]);
   return (
     <div className="toast-region" role="status" aria-live="polite">
       {message && (
-        <div className="toast" key={message.key}>
-          {message.text}
+        <div className={`toast ${message.action ? 'with-action' : ''}`} key={message.key}>
+          <span>{message.text}</span>
+          {message.action && (
+            <button
+              type="button"
+              className="toast-action"
+              onClick={() => {
+                message.action!.onClick();
+                setMessage(null);
+              }}
+            >
+              {message.action.label}
+            </button>
+          )}
         </div>
       )}
     </div>

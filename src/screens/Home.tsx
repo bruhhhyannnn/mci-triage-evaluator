@@ -8,7 +8,8 @@ import { cleanName, formatDate, nameMatches, normalizeName, percent } from '../l
 import { haptic } from '../lib/haptics';
 import { navigate } from '../lib/router';
 import { nextUnfinishedMethod, scoreEvaluation } from '../lib/scoring';
-import { createEvaluation, defaultDrill, evaluationsList, setDrillDay, useAppState } from '../lib/store';
+import { promptInstall, useInstallMode } from '../lib/install';
+import { createEvaluation, defaultDrill, evaluationsList, setDrillDay, updateSettings, useAppState } from '../lib/store';
 import type { DayKey, Evaluation } from '../lib/types';
 
 interface Candidate {
@@ -20,6 +21,45 @@ interface Candidate {
 }
 
 const ALL = '__all__';
+const LIST_LIMIT = 80;
+
+function InstallCard() {
+  const mode = useInstallMode();
+  const dismissed = useAppState((s) => s.settings.installDismissed);
+  if (!mode || dismissed) return null;
+  return (
+    <section className="card install-card" aria-label="Install the app">
+      <span className="row-plus" aria-hidden="true">
+        <Icon name="smartphone" size={18} />
+      </span>
+      <div className="install-text">
+        <strong>Install the app on this phone</strong>
+        <span className="muted">
+          {mode === 'ios'
+            ? 'Tap Share, then Add to Home Screen. It opens full screen, works offline and keeps your scores safe.'
+            : 'It opens full screen, works offline and keeps your scores safe.'}
+        </span>
+        <div className="row">
+          {mode === 'prompt' && (
+            <button
+              type="button"
+              className="btn primary sm"
+              onClick={async () => {
+                haptic('tap');
+                if (await promptInstall()) updateSettings({ installDismissed: true });
+              }}
+            >
+              Install
+            </button>
+          )}
+          <button type="button" className="btn ghost sm" onClick={() => updateSettings({ installDismissed: true })}>
+            {mode === 'ios' ? 'Got it' : 'Not now'}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 export default function Home() {
   const drill = useAppState((s) => s.drill) ?? defaultDrill();
@@ -66,7 +106,10 @@ export default function Home() {
   }, [candidates, trimmed, group]);
   const exact = candidates.find((c) => c.key === normalizeName(trimmed));
   const inScope = candidates.filter((c) => group === ALL || c.group === group);
-  const notYet = inScope.filter((c) => c.sameDay.length === 0).length;
+  const scored = inScope.filter((c) => c.sameDay.some((e) => e.completedAt)).length;
+  // Without a search: split into who is left and who is done. Unfinished sheets have their own section above.
+  const toScore = matches.filter((c) => c.sameDay.length === 0);
+  const done = matches.filter((c) => c.sameDay.length > 0 && c.sameDay[0].completedAt);
 
   function begin(name: string, g = '') {
     haptic('tap');
@@ -96,13 +139,37 @@ export default function Home() {
     else startNew();
   }
 
+  function renderRow(c: Candidate) {
+    const latest = c.sameDay[0];
+    const sc = latest && scoreEvaluation(latest);
+    return (
+      <button key={c.key} type="button" className={`row-card ${latest?.completedAt ? 'done' : ''}`} onClick={() => choose(c)}>
+        <span className="row-main">
+          <span className="row-title">{c.name}</span>
+          {c.group && <span className="row-sub">{c.group}</span>}
+        </span>
+        {latest ? (
+          latest.completedAt ? (
+            <StatusChip status="live">
+              Done <span className="mono">{sc!.correct}/{sc!.total}</span>
+            </StatusChip>
+          ) : (
+            <StatusChip status="pending">Unfinished</StatusChip>
+          )
+        ) : (
+          <span className="row-go" aria-hidden="true">
+            <Icon name="chevron-right" size={20} />
+          </span>
+        )}
+      </button>
+    );
+  }
+
   const hint = error
     ? error
     : candidates.length === 0
       ? `Type a full name and press Go, or import your list of names.`
-      : notYet > 0
-        ? `${notYet} not yet done for ${day.label}. Tap a name to start ${day.methods[0]}.`
-        : `Everyone here is done for ${day.label}. Type a new name to add someone.`;
+      : `Tap a name to start ${day.methods[0]}, or type a new trainee's full name.`;
 
   return (
     <main className="screen home">
@@ -118,6 +185,8 @@ export default function Home() {
         </div>
         <IconButton icon="settings" label="Settings" onClick={() => setSettingsOpen(true)} />
       </header>
+
+      <InstallCard />
 
       <section className="stack-sm" aria-label="Day">
         <SegmentedControl<DayKey>
@@ -157,6 +226,24 @@ export default function Home() {
         <p id="name-hint" className={error ? 'field-error' : 'hint'}>
           {hint}
         </p>
+        {inScope.length > 0 && !trimmed && (
+          <div className="progress" aria-label={`${scored} of ${inScope.length} scored for ${day.label}`}>
+            <div className="progress-text">
+              <span>
+                <strong className="mono">{scored}</strong>
+                <span className="muted">
+                  {' '}
+                  of <span className="mono">{inScope.length}</span> scored for {day.label}
+                  {group !== ALL ? ` · ${group}` : ''}
+                </span>
+              </span>
+              <span className="mono muted">{Math.round((scored / inScope.length) * 100)}%</span>
+            </div>
+            <div className="progress-track">
+              <span className="progress-fill" style={{ width: `${(scored / inScope.length) * 100}%` }} />
+            </div>
+          </div>
+        )}
         {groups.length > 1 && (
           <div className="chips" role="group" aria-label="Group">
             {[ALL, ...groups].map((g) => (
@@ -206,43 +293,14 @@ export default function Home() {
             </button>
           }
         />
-      ) : (
-        <section className="stack-sm" aria-label="Trainees">
-          <div className="section-head">
-            <h2 className="section-label">
-              {trimmed ? 'Matches' : 'Trainees'} <span className="count">{matches.length}</span>
-            </h2>
-            <button type="button" className="btn ghost sm" onClick={() => setRosterOpen(true)}>
-              <Icon name="upload" size={16} />
-              Import names
-            </button>
-          </div>
-          {matches.slice(0, 80).map((c) => {
-            const latest = c.sameDay[0];
-            const s = latest && scoreEvaluation(latest);
-            return (
-              <button key={c.key} type="button" className={`row-card ${latest?.completedAt ? 'done' : ''}`} onClick={() => choose(c)}>
-                <span className="row-main">
-                  <span className="row-title">{c.name}</span>
-                  {c.group && <span className="row-sub">{c.group}</span>}
-                </span>
-                {latest ? (
-                  latest.completedAt ? (
-                    <StatusChip status="live">
-                      Done <span className="mono">{s!.correct}/{s!.total}</span>
-                    </StatusChip>
-                  ) : (
-                    <StatusChip status="pending">Unfinished</StatusChip>
-                  )
-                ) : (
-                  <span className="row-go" aria-hidden="true">
-                    <Icon name="chevron-right" size={20} />
-                  </span>
-                )}
-              </button>
-            );
-          })}
-          {trimmed && !exact && (
+      ) : trimmed ? (
+        <section className="stack-sm" aria-label="Matches">
+          <h2 className="section-label">
+            Matches <span className="count">{matches.length}</span>
+          </h2>
+          {matches.slice(0, LIST_LIMIT).map(renderRow)}
+          {matches.length > LIST_LIMIT && <p className="hint">Showing {LIST_LIMIT} of {matches.length}. Type more of the name to narrow it down.</p>}
+          {!exact && (
             <button type="button" className="row-card new" onClick={startNew}>
               <span className="row-plus" aria-hidden="true">
                 <Icon name="plus" size={18} />
@@ -254,6 +312,40 @@ export default function Home() {
             </button>
           )}
         </section>
+      ) : (
+        <>
+          <section className="stack-sm" aria-label="To score">
+            <div className="section-head">
+              <h2 className="section-label">
+                To score <span className="count">{toScore.length}</span>
+              </h2>
+              <button type="button" className="btn ghost sm" onClick={() => setRosterOpen(true)}>
+                <Icon name="upload" size={16} />
+                Import names
+              </button>
+            </div>
+            {toScore.length === 0 ? (
+              <p className="all-done">
+                <StatusChip status="live">Everyone here is scored for {day.label}</StatusChip>
+              </p>
+            ) : (
+              toScore.slice(0, LIST_LIMIT).map(renderRow)
+            )}
+            {toScore.length > LIST_LIMIT && (
+              <p className="hint">
+                Showing {LIST_LIMIT} of {toScore.length}. Search to find the rest.
+              </p>
+            )}
+          </section>
+          {done.length > 0 && (
+            <section className="stack-sm" aria-label="Done">
+              <h2 className="section-label">
+                Done for {day.label} <span className="count">{done.length}</span>
+              </h2>
+              {done.slice(0, LIST_LIMIT).map(renderRow)}
+            </section>
+          )}
+        </>
       )}
 
       <SettingsSheet open={settingsOpen || !hasEvaluator} firstRun={!hasEvaluator} onClose={() => setSettingsOpen(false)} />

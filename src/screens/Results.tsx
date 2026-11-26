@@ -8,7 +8,7 @@ import { formatDate, nameMatches, normalizeName, percent, todayISO } from '../li
 import { haptic } from '../lib/haptics';
 import { navigate } from '../lib/router';
 import { scoreEvaluation } from '../lib/scoring';
-import { evaluationsList, makeBackup, removeRosterEntry, restoreBackup, useAppState } from '../lib/store';
+import { evaluationsList, makeBackup, removeRosterEntry, restoreBackup, updateSettings, useAppState } from '../lib/store';
 import type { DayKey, Evaluation } from '../lib/types';
 
 type View = 'trainees' | 'sheets';
@@ -28,6 +28,7 @@ function openSheet(e: Evaluation) {
 export default function Results() {
   const evaluations = useAppState((s) => s.evaluations);
   const roster = useAppState((s) => s.roster);
+  const lastBackupAt = useAppState((s) => s.settings.lastBackupAt);
   const [view, setView] = useState<View>('trainees');
   const [query, setQuery] = useState('');
   const [day, setDay] = useState<DayKey | 'all'>('all');
@@ -86,8 +87,12 @@ export default function Results() {
     }
   }
 
+  // Remind about a backup when sheets changed since the last one (or there has never been one).
+  const changedSinceBackup = all.filter((e) => !lastBackupAt || e.updatedAt > lastBackupAt).length;
+
   function saveBackup() {
     download(`mci-triage-backup-${todayISO()}.json`, JSON.stringify(makeBackup()), 'application/json');
+    updateSettings({ lastBackupAt: new Date().toISOString() });
     haptic('success');
     toast('Backup file saved.');
     setPanel(null);
@@ -133,6 +138,25 @@ export default function Results() {
           Export
         </button>
       </header>
+
+      {changedSinceBackup > 0 && (
+        <button type="button" className="row-card pending" onClick={() => setPanel('export')}>
+          <span className="row-plus warn" aria-hidden="true">
+            <Icon name="alert-triangle" size={18} />
+          </span>
+          <span className="row-main">
+            <span className="row-title">Back up your results</span>
+            <span className="row-sub">
+              {lastBackupAt
+                ? `${changedSinceBackup} ${changedSinceBackup === 1 ? 'sheet' : 'sheets'} changed since ${formatDate(lastBackupAt.slice(0, 10))}`
+                : `${changedSinceBackup} ${changedSinceBackup === 1 ? 'sheet is' : 'sheets are'} only on this phone`}
+            </span>
+          </span>
+          <span className="row-go" aria-hidden="true">
+            <Icon name="chevron-right" size={20} />
+          </span>
+        </button>
+      )}
 
       <div className="stack-sm">
         <SearchField value={query} onChange={setQuery} placeholder="Search name" label="Search name" />
@@ -303,7 +327,8 @@ export default function Results() {
         </div>
         <div className="divider" />
         <p className="sheet-body muted small">
-          Scores are saved on this phone only. A backup file moves everything (sheets and names) to another device.
+          Scores are saved on this phone only. A backup file keeps a copy and moves everything (sheets and names) to another
+          device. Last backup: {lastBackupAt ? formatDate(lastBackupAt.slice(0, 10)) : 'never'}.
         </p>
         <div className="row">
           <button type="button" className="btn outline grow" onClick={saveBackup} disabled={all.length + roster.length === 0}>

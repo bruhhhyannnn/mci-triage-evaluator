@@ -3,6 +3,7 @@ import { useRegisterSW } from 'virtual:pwa-register/react';
 import { Icon, type IconName } from './components/Icon';
 import { ToastHost } from './components/ui';
 import { haptic, setHapticsEnabled } from './lib/haptics';
+import { requestPersistentStorage } from './lib/install';
 import { navigate, useRoute, type Route } from './lib/router';
 import { useAppState, type Appearance } from './lib/store';
 import Home from './screens/Home';
@@ -85,6 +86,12 @@ export default function App() {
   useEffect(() => {
     setHapticsEnabled(settings.haptics);
   }, [settings.haptics]);
+
+  // Scores live only on this device: ask the browser not to evict them under storage pressure.
+  const hasData = useAppState((s) => Object.keys(s.evaluations).length > 0);
+  useEffect(() => {
+    if (hasData) requestPersistentStorage();
+  }, [hasData]);
 
   useEffect(() => {
     window.scrollTo(0, 0);

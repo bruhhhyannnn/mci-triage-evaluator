@@ -105,6 +105,30 @@ export function summaryRows(evaluations: Evaluation[]): Cell[][] {
   return rows;
 }
 
+/** One row per trainee with their newest Day 1, Day 2 and Day 3 scores side by side. */
+export function traineeRows(evaluations: Evaluation[]): Cell[][] {
+  const rows: Cell[][] = [
+    ['Trainee', 'Group or batch', 'Day 1', 'Day 1 %', 'Day 2', 'Day 2 %', 'Day 3 E-Set', 'Day 3 %'],
+  ];
+  const byTrainee = new Map<string, { name: string; group: string; days: Partial<Record<string, Evaluation>> }>();
+  const newestFirst = [...evaluations].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  for (const e of newestFirst) {
+    const key = e.traineeName.toLowerCase().replace(/\s+/g, ' ').trim();
+    const entry = byTrainee.get(key) ?? { name: e.traineeName, group: e.group, days: {} };
+    entry.days[e.day] ??= e;
+    byTrainee.set(key, entry);
+  }
+  const cells = (e: Evaluation | undefined): Cell[] => {
+    if (!e) return ['', ''];
+    const s = scoreEvaluation(e);
+    return [`${s.correct}/${s.total}${e.completedAt ? '' : ' (unfinished)'}`, Math.round(s.accuracy * 100)];
+  };
+  for (const t of [...byTrainee.values()].sort((a, b) => a.name.localeCompare(b.name))) {
+    rows.push([t.name, t.group, ...cells(t.days.day1), ...cells(t.days.day2), ...cells(t.days.day3)]);
+  }
+  return rows;
+}
+
 export function toCsv(rows: Cell[][]): string {
   return rows.map((r) => r.map(csvCell).join(',')).join('\r\n');
 }
@@ -139,7 +163,8 @@ export async function exportExcel(evaluations: Evaluation[], stamp: string) {
       col.width = Math.min(40, longest + 2);
     });
   };
-  addSheet('Summary', summaryRows(evaluations));
+  addSheet('By trainee', traineeRows(evaluations));
+  addSheet('Sheets', summaryRows(evaluations));
   addSheet('By method', methodRows(evaluations));
   const buffer = await workbook.xlsx.writeBuffer();
   download(

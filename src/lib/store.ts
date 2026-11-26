@@ -16,9 +16,13 @@ export type Appearance = 'system' | 'light' | 'dark';
 export interface Settings {
   appearance: Appearance;
   haptics: boolean;
+  /** ISO time of the last backup file saved from this device. */
+  lastBackupAt: string | null;
+  /** The "Install the app" card was dismissed. */
+  installDismissed: boolean;
 }
 
-const DEFAULT_SETTINGS: Settings = { appearance: 'system', haptics: true };
+const DEFAULT_SETTINGS: Settings = { appearance: 'system', haptics: true, lastBackupAt: null, installDismissed: false };
 
 export interface AppState {
   drill: Drill | null;
@@ -212,6 +216,29 @@ export function finishMethod(id: string, method: Method) {
     startedAt: null,
     finishedAt: run.finishedAt ?? new Date().toISOString(),
   }));
+}
+
+/**
+ * Undo for a method that just finished: restores the last tag (when the finish came
+ * from tagging the last victim), reopens the method and restarts its stopwatch.
+ */
+export function reopenMethod(id: string, method: Method, lastTag?: { victimId: string; previous: Tag | null }) {
+  updateEvaluation(id, (e) => {
+    const runs = { ...e.runs };
+    // A later method may have been started in the meantime; pause it.
+    for (const m of Object.keys(runs) as Method[]) {
+      const r = runs[m]!;
+      if (m !== method && r.startedAt) runs[m] = { ...r, elapsedMs: elapsedMs(r), startedAt: null };
+    }
+    const run = runs[method] ?? emptyRun();
+    const answers = { ...run.answers };
+    if (lastTag) {
+      if (lastTag.previous) answers[lastTag.victimId] = lastTag.previous;
+      else delete answers[lastTag.victimId];
+    }
+    runs[method] = { ...run, answers, finishedAt: null, startedAt: run.startedAt ?? Date.now() };
+    return withCompletion({ ...e, runs });
+  });
 }
 
 export function resetMethod(id: string, method: Method) {
